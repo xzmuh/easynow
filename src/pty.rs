@@ -3,6 +3,7 @@
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::mpsc::SyncSender;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
@@ -19,16 +20,10 @@ struct Saida {
     dados: String,
 }
 
-pub struct Atividade {
-    pub ultima_saida: Instant,
-    pub bytes: u64,
-}
-
 pub struct Aba {
     pub pid: Option<u32>,
-    pub atividade: Arc<Mutex<Atividade>>,
-    pub ultima_entrada: Instant,
-    pub codigo_saida: Option<u32>,
+    /// quando você digitou por último (para não confundir o eco com trabalho)
+    ultima_entrada: Arc<Mutex<Instant>>,
     master: Box<dyn MasterPty + Send>,
     escritor: Box<dyn Write + Send>,
     filho: Box<dyn Child + Send + Sync>,
@@ -44,6 +39,8 @@ fn programa(tipo: &str) -> String {
 
 impl Aba {
     /// `conta`: pasta de configuração do Claude a usar (None = a padrão).
+    /// `acordar`: recebe um sinal a cada saída do programa (o shell usa para saber se está trabalhando).
+    #[allow(clippy::too_many_arguments)]
     pub fn abrir(
         app: AppHandle,
         id: u32,
@@ -52,6 +49,8 @@ impl Aba {
         pasta: PathBuf,
         linhas: u16,
         colunas: u16,
+        ultima_entrada: Arc<Mutex<Instant>>,
+        acordar: Option<SyncSender<()>>,
     ) -> Result<Aba> {
         let par = native_pty_system().openpty(PtySize {
             rows: linhas.max(2),
@@ -78,9 +77,7 @@ impl Aba {
 
         let mut leitor = par.master.try_clone_reader()?;
         let escritor = par.master.take_writer()?;
-        let atividade = Arc::new(Mutex::new(Atividade { ultima_saida: Instant::now(), bytes: 0 }));
 
-        let ativ = atividade.clone();
         thread::spawn(move || {
             let b64 = base64::engine::general_purpose::STANDARD;
             let mut buf = [0u8; 32 * 1024];
@@ -89,10 +86,9 @@ impl Aba {
                     Ok(0) | Err(_) => break,
                     Ok(n) => n,
                 };
-                {
-                    let mut a = ativ.lock().unwrap();
-                    a.ultima_saida = Instant::now();
-                    a.bytes += n as u64;
+                if let Some(a) = &acordar {
+                    // se já tem um sinal esperando, não precisa de outro
+                    let _ = a.try_send(());
                 }
                 // base64 porque a saída é byte cru (pode cortar um caractere no meio)
                 let _ = app.emit("saida", Saida { id, dados: b64.encode(&buf[..n]) });
@@ -100,12 +96,9 @@ impl Aba {
             let _ = app.emit("fim", id);
         });
 
-        let agora = Instant::now();
         Ok(Aba {
             pid: filho.process_id(),
-            atividade,
-            ultima_entrada: agora,
-            codigo_saida: None,
+            ultima_entrada,
             master: par.master,
             escritor,
             filho,
@@ -113,14 +106,14 @@ impl Aba {
     }
 
     pub fn escrever(&mut self, dados: &[u8]) {
-        self.ultima_entrada = Instant::now();
+        *self.ultima_entrada.lock().unwrap() = Instant::now();
         let _ = self.escritor.write_all(dados);
         let _ = self.escritor.flush();
     }
 
     pub fn redimensionar(&mut self, linhas: u16, colunas: u16) {
         // o programa vai se redesenhar inteiro; isso não conta como "trabalhar"
-        self.ultima_entrada = Instant::now();
+        *self.ultima_entrada.lock().unwrap() = Instant::now();
         let _ = self.master.resize(PtySize {
             rows: linhas.max(2),
             cols: colunas.max(2),
@@ -129,13 +122,16 @@ impl Aba {
         });
     }
 
-    pub fn verificar_saida(&mut self) -> Option<u32> {
-        if self.codigo_saida.is_none() {
+    /// Código de saída (chamado depois do evento "fim", quando o programa já fechou).
+    pub fn codigo_saida(&mut self) -> Option<u32> {
+        // espera no máximo 1 s; se ainda não saiu, deixa sem código
+        for _ in 0..20 {
             if let Ok(Some(s)) = self.filho.try_wait() {
-                self.codigo_saida = Some(s.exit_code());
+                return Some(s.exit_code());
             }
+            thread::sleep(std::time::Duration::from_millis(50));
         }
-        self.codigo_saida
+        None
     }
 }
 

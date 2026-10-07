@@ -9,9 +9,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -120,18 +117,9 @@ impl Leitor {
         None
     }
 
-    /// Tokens da sessão do Codex: procura o arquivo .jsonl que o processo deixou aberto.
-    pub fn codex(&mut self, pids: &[u32], limites: &mut Option<Limite>) -> Option<Tokens> {
-        for pid in pids {
-            for fd in std::fs::read_dir(format!("/proc/{pid}/fd")).into_iter().flatten().flatten() {
-                let Ok(alvo) = std::fs::read_link(fd.path()) else { continue };
-                let s = alvo.to_string_lossy();
-                if s.contains("/.codex/sessions/") && s.ends_with(".jsonl") {
-                    return self.ler(&alvo, linha_codex, limites);
-                }
-            }
-        }
-        None
+    /// Tokens (e estado) da sessão do Codex nesse arquivo.
+    pub fn ler_codex(&mut self, arquivo: &Path, limites: &mut Option<Limite>) -> Option<Tokens> {
+        self.ler(arquivo, linha_codex, limites)
     }
 
     /// Lê só o que foi acrescentado no arquivo desde a última vez.
@@ -195,6 +183,8 @@ fn linha_claude(v: &Value, l: &mut Leitura, _: &mut Option<Limite>) {
 fn linha_codex(v: &Value, l: &mut Leitura, limites: &mut Option<Limite>) {
     let Some(p) = v.get("payload") else { return };
     match (v.get("type").and_then(Value::as_str), p.get("type").and_then(Value::as_str)) {
+        (Some("event_msg"), Some("task_started")) => l.t.status = Some("busy".into()),
+        (Some("event_msg"), Some("task_complete" | "turn_aborted")) => l.t.status = Some("idle".into()),
         (Some("turn_context"), _) => {
             if let Some(m) = p.get("model").and_then(Value::as_str) {
                 l.t.modelo = m.to_string();
@@ -229,6 +219,8 @@ pub struct Janela {
 
 #[derive(Clone, Serialize)]
 pub struct Limite {
+    /// pasta da conta do Claude, ou "codex"
+    pub chave: String,
     pub nome: String,
     pub tipo: String,
     pub sessao: Option<Janela>,
@@ -244,6 +236,7 @@ fn limite_codex(r: &Value) -> Limite {
         })
     };
     Limite {
+        chave: "codex".into(),
         nome: "Codex".into(),
         tipo: "codex".into(),
         sessao: janela("primary"),
@@ -252,8 +245,8 @@ fn limite_codex(r: &Value) -> Limite {
     }
 }
 
-fn limite_claude(conta: &Conta) -> Limite {
-    let mut lim = Limite { nome: conta.nome.clone(), tipo: "claude".into(), sessao: None, semana: None, erro: None };
+pub fn limite_claude(conta: &Conta) -> Limite {
+    let mut lim = Limite { chave: conta.dir.clone(), nome: conta.nome.clone(), tipo: "claude".into(), sessao: None, semana: None, erro: None };
     let token = std::fs::read_to_string(Path::new(&conta.dir).join(".credentials.json"))
         .ok()
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
@@ -285,7 +278,7 @@ fn limite_claude(conta: &Conta) -> Limite {
 }
 
 /// Limites do Codex pelo arquivo de sessão mais recente (quando não tem Codex aberto).
-fn limite_codex_recente() -> Option<Limite> {
+pub fn limite_codex_recente() -> Option<Limite> {
     let raiz = PathBuf::from(std::env::var("HOME").ok()?).join(".codex/sessions");
     let mut arquivos = vec![];
     let mut pastas = vec![raiz];
@@ -307,20 +300,6 @@ fn limite_codex_recente() -> Option<Limite> {
         let v: Value = serde_json::from_str(l).ok()?;
         v.pointer("/payload/rate_limits").filter(|r| !r.is_null()).map(limite_codex)
     })
-}
-
-/// Thread que atualiza os limites a cada 2 minutos.
-pub fn iniciar_limites(contas: Vec<Conta>, codex_ao_vivo: Arc<Mutex<Option<Limite>>>) -> Arc<Mutex<Vec<Limite>>> {
-    let saida = Arc::new(Mutex::new(vec![]));
-    let destino = saida.clone();
-    thread::spawn(move || loop {
-        let mut lista: Vec<Limite> = contas.iter().map(limite_claude).collect();
-        let codex = codex_ao_vivo.lock().unwrap().clone().or_else(limite_codex_recente);
-        lista.extend(codex);
-        *destino.lock().unwrap() = lista;
-        thread::sleep(Duration::from_secs(120));
-    });
-    saida
 }
 
 /// Nome da pasta do projeto como o Claude grava: tudo que não é letra/número vira "-".

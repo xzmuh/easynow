@@ -1,8 +1,9 @@
-// easynow: uma janela com abas para claude, codex e shell, e a telemetria de cada agente.
-// O Rust cuida dos programas (PTY) e das medições; a interface fica em ui/.
+// easynow: uma janela com abas para claude, codex e shell.
+// O Rust roda os programas (pty.rs) e acompanha o estado deles por eventos (monitor.rs);
+// a interface fica em ui/.
 
+mod monitor;
 mod pty;
-mod telemetria;
 mod uso;
 
 use std::collections::HashMap;
@@ -11,28 +12,17 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use serde::Serialize;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
+use monitor::Monitor;
 use pty::Aba;
-use telemetria::{Alvo, Telemetria};
-use uso::{Conta, Limite, Tokens};
+use uso::Conta;
 
 struct Estado {
-    /// aba -> (programa rodando, o que a telemetria mede)
-    abas: Mutex<HashMap<u32, (Aba, Alvo)>>,
-    alvos: Arc<Mutex<Vec<Alvo>>>,
-    telemetria: Arc<Mutex<Telemetria>>,
-    limites: Arc<Mutex<Vec<Limite>>>,
-    codex_ao_vivo: Arc<Mutex<Option<Limite>>>,
+    abas: Mutex<HashMap<u32, Aba>>,
     contas: Vec<Conta>,
     iniciais: Vec<String>,
     pasta: PathBuf,
-}
-
-impl Estado {
-    fn atualizar_alvos(&self, abas: &HashMap<u32, (Aba, Alvo)>) {
-        *self.alvos.lock().unwrap() = abas.values().map(|(_, alvo)| alvo.clone()).collect();
-    }
 }
 
 #[derive(Serialize)]
@@ -56,9 +46,11 @@ fn inicio(estado: State<Estado>) -> Inicio {
 /// Abre um programa novo. `pasta_de` = id da aba cuja pasta atual a nova aba deve usar;
 /// `conta` = pasta de configuração do Claude (só para tipo "claude").
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 fn abrir(
     app: AppHandle,
     estado: State<Estado>,
+    monitor: State<Arc<Monitor>>,
     id: u32,
     tipo: String,
     conta: Option<String>,
@@ -69,7 +61,7 @@ fn abrir(
     let mut abas = estado.abas.lock().unwrap();
     let pasta = pasta_de
         .and_then(|i| abas.get(&i))
-        .and_then(|(a, _)| a.pid)
+        .and_then(|a| a.pid)
         .and_then(|p| std::fs::read_link(format!("/proc/{p}/cwd")).ok())
         .unwrap_or_else(|| estado.pasta.clone());
     let conta = if tipo == "claude" {
@@ -80,108 +72,47 @@ fn abrir(
         None
     };
     let env_conta = conta.filter(|c| !c.padrao).map(|c| c.dir.as_str());
-    let aba = Aba::abrir(app, id, &tipo, env_conta, pasta.clone(), linhas, colunas).map_err(|e| e.to_string())?;
-    let alvo = Alvo {
-        pid: aba.pid.unwrap_or(0),
-        tipo: tipo.clone(),
-        config: conta.map(|c| PathBuf::from(&c.dir)),
-    };
-    abas.insert(id, (aba, alvo));
-    estado.atualizar_alvos(&abas);
+
+    let ultima_entrada = Arc::new(Mutex::new(Instant::now()));
+    // só o shell precisa ser acordado pela saída; Claude e Codex avisam por arquivo
+    let acordar = (tipo == "shell").then(|| monitor.vigiar_shell(id, ultima_entrada.clone()));
+    let aba = Aba::abrir(app, id, &tipo, env_conta, pasta.clone(), linhas, colunas, ultima_entrada, acordar)
+        .map_err(|e| e.to_string())?;
+    monitor.registrar(id, &tipo, aba.pid.unwrap_or(0), conta.map(|c| PathBuf::from(&c.dir)));
+    abas.insert(id, aba);
     Ok(pasta.to_string_lossy().into())
 }
 
 #[tauri::command]
 fn escrever(estado: State<Estado>, id: u32, dados: String) {
-    if let Some((a, _)) = estado.abas.lock().unwrap().get_mut(&id) {
+    if let Some(a) = estado.abas.lock().unwrap().get_mut(&id) {
         a.escrever(dados.as_bytes());
     }
 }
 
 #[tauri::command]
 fn redimensionar(estado: State<Estado>, id: u32, linhas: u16, colunas: u16) {
-    if let Some((a, _)) = estado.abas.lock().unwrap().get_mut(&id) {
+    if let Some(a) = estado.abas.lock().unwrap().get_mut(&id) {
         a.redimensionar(linhas, colunas);
     }
 }
 
 #[tauri::command]
-fn fechar(estado: State<Estado>, id: u32) {
-    let mut abas = estado.abas.lock().unwrap();
-    abas.remove(&id);
-    estado.atualizar_alvos(&abas);
+fn fechar(estado: State<Estado>, monitor: State<Arc<Monitor>>, id: u32) {
+    estado.abas.lock().unwrap().remove(&id);
+    monitor.remover(id);
 }
 
-#[derive(Serialize)]
-struct StatusAba {
-    id: u32,
-    ms_saida: u64,
-    ms_entrada: u64,
-    bytes: u64,
-    codigo_saida: Option<u32>,
-    pasta: Option<String>,
-    branch: Option<String>,
-    workspace: Option<String>,
-    tokens: Option<Tokens>,
-    rodando: String,
-    cpu: f32,
-    memoria: u64,
-    processos: usize,
-}
-
-#[derive(Serialize)]
-struct Status {
-    cpu: f32,
-    memoria_usada: u64,
-    memoria_total: u64,
-    abas: Vec<StatusAba>,
-    limites: Vec<Limite>,
-}
-
+/// Depois do evento "fim": com que código o programa saiu.
 #[tauri::command]
-fn status(estado: State<Estado>) -> Status {
-    let t = estado.telemetria.lock().unwrap().clone();
-    let agora = Instant::now();
-    let mut abas = estado.abas.lock().unwrap();
-    let lista = abas
-        .iter_mut()
-        .map(|(id, (a, _))| {
-            let codigo_saida = a.verificar_saida();
-            let (ultima_saida, bytes) = {
-                let at = a.atividade.lock().unwrap();
-                (at.ultima_saida, at.bytes)
-            };
-            let uso = a.pid.and_then(|p| t.por_pid.get(&p).cloned()).unwrap_or_default();
-            StatusAba {
-                id: *id,
-                ms_saida: agora.duration_since(ultima_saida).as_millis() as u64,
-                ms_entrada: agora.duration_since(a.ultima_entrada).as_millis() as u64,
-                bytes,
-                codigo_saida,
-                pasta: uso.pasta.map(|p| p.to_string_lossy().into()),
-                branch: uso.branch,
-                workspace: uso.workspace,
-                tokens: uso.tokens,
-                rodando: uso.rodando,
-                cpu: uso.cpu,
-                memoria: uso.memoria,
-                processos: uso.processos,
-            }
-        })
-        .collect();
-    // limites das contas; o do Codex vem ao vivo se tiver um Codex aberto
-    let mut limites = estado.limites.lock().unwrap().clone();
-    if let Some(ao_vivo) = estado.codex_ao_vivo.lock().unwrap().clone() {
-        limites.retain(|l| l.tipo != "codex");
-        limites.push(ao_vivo);
-    }
-    Status {
-        cpu: t.cpu,
-        memoria_usada: t.memoria_usada,
-        memoria_total: t.memoria_total,
-        abas: lista,
-        limites,
-    }
+fn codigo_saida(estado: State<Estado>, id: u32) -> Option<u32> {
+    estado.abas.lock().unwrap().get_mut(&id)?.codigo_saida()
+}
+
+/// A janela pede ao trocar de aba; só busca de novo se passou um minuto.
+#[tauri::command]
+fn pedir_limites(monitor: State<Arc<Monitor>>, chave: Option<String>) {
+    monitor.pedir_limites(chave);
 }
 
 fn main() {
@@ -228,23 +159,29 @@ fn main() {
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }
 
-    let alvos = Arc::new(Mutex::new(vec![]));
-    let codex_ao_vivo = Arc::new(Mutex::new(None));
     let contas = uso::contas();
     let estado = Estado {
         abas: Mutex::new(HashMap::new()),
-        telemetria: telemetria::iniciar(alvos.clone(), codex_ao_vivo.clone()),
-        limites: uso::iniciar_limites(contas.clone(), codex_ao_vivo.clone()),
-        alvos,
-        codex_ao_vivo,
-        contas,
+        contas: contas.clone(),
         iniciais,
         pasta: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
     };
 
     tauri::Builder::default()
         .manage(estado)
-        .invoke_handler(tauri::generate_handler![inicio, abrir, escrever, redimensionar, fechar, status])
+        .setup(move |app| {
+            app.manage(Monitor::iniciar(app.handle().clone(), contas.clone()));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            inicio,
+            abrir,
+            escrever,
+            redimensionar,
+            fechar,
+            codigo_saida,
+            pedir_limites
+        ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir a janela");
 }

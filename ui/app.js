@@ -1,6 +1,7 @@
 // Interface do easynow. Cada aba tem um xterm.js; o Rust (src/) roda os programas
-// e manda a saída pelo evento "saida". A cada meio segundo pedimos o "status"
-// (atividade, CPU, RAM, pasta, branch) e redesenhamos os painéis.
+// e avisa por eventos: "saida" (texto do terminal), "estado" (trabalhando ou não),
+// "info" (pasta, workspace, branch, tokens), "limites" e "fim". Nada roda em
+// intervalo: a tela só é redesenhada quando chega um evento ou você faz algo.
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -29,7 +30,7 @@ let ativa = -1;
 let grade = false;
 let proxId = 1;
 let home = "";
-let sistema = null;
+let limites = [];
 let contas = []; // contas do Claude (Next SI, Nuveto...)
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
 
@@ -48,7 +49,7 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
     fontSize: 13,
     lineHeight: 1.2,
     theme: TEMA,
-    cursorBlink: true,
+    cursorBlink: false,
     scrollback: 10000,
     allowProposedApi: true,
   });
@@ -59,7 +60,7 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
     id, tipo, conta, term, fit, el,
     titulo: "", pasta: "", aberta: Date.now(),
     trabalhandoDesde: null, tempoTrabalhando: 0, rodadas: 0,
-    aviso: false, codigo: null, st: null, tamanho: [0, 0],
+    aviso: false, codigo: null, info: null, tamanho: [0, 0],
   };
   abas.push(aba);
   ativar(abas.length - 1);
@@ -68,7 +69,12 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
   try { fit.fit(); } catch {}
 
   term.onData((d) => invoke("escrever", { id, dados: d }));
-  term.onTitleChange((t) => { aba.titulo = t; desenhar(); });
+  term.onTitleChange((t) => {
+    // o Claude anima um ícone no título enquanto trabalha; só redesenha se o texto mudou
+    const antes = tituloUtil(aba);
+    aba.titulo = t;
+    if (tituloUtil(aba) !== antes) desenhar();
+  });
   term.onBell(() => { if (abas[ativa] !== aba) { aba.aviso = true; desenhar(); } });
   term.attachCustomKeyEventHandler((ev) => !atalho(ev));
   el.querySelector(".quadro-topo").addEventListener("click", () => ativar(abas.indexOf(aba)));
@@ -100,6 +106,8 @@ function ativar(i) {
   ativa = i;
   abas[i].aviso = false;
   abas.forEach((a, j) => a.el.classList.toggle("ativo", j === i));
+  const a = abas[i];
+  if (a.tipo === "claude" && a.conta) invoke("pedir_limites", { chave: a.conta.dir });
   desenhar();
   requestAnimationFrame(() => {
     abas.forEach(ajustar);
@@ -136,27 +144,29 @@ function alternarGrade() {
 
 // ---------- estado de cada agente ----------
 
-function atualizarEstados(status) {
-  sistema = status;
-  const agora = Date.now();
-  for (const aba of abas) {
-    const s = status.abas.find((x) => x.id === aba.id);
-    if (!s) continue;
-    aba.st = s;
-    if (s.codigo_saida != null && aba.codigo === null) {
-      aba.codigo = s.codigo_saida;
-      fecharRodada(aba);
-      continue;
-    }
-    // "Trabalhando" = saiu coisa na tela há pouco, e não foi só o eco do que você digitou.
-    // O Claude grava se está "busy"; nos outros, vale a regra acima.
-    const doClaude = s.tokens?.status;
-    const ocupada = aba.codigo === null && (doClaude
-      ? doClaude === "busy"
-      : s.ms_saida < 1500 && s.ms_entrada - s.ms_saida > 400);
-    if (ocupada && !aba.trabalhandoDesde) aba.trabalhandoDesde = agora;
-    else if (!ocupada && aba.trabalhandoDesde) fecharRodada(aba);
-  }
+const porId = (id) => abas.find((a) => a.id === id);
+
+function aoEstado({ id, trabalhando }) {
+  const aba = porId(id);
+  if (!aba || aba.codigo !== null) return;
+  if (trabalhando && !aba.trabalhandoDesde) aba.trabalhandoDesde = Date.now();
+  else if (!trabalhando && aba.trabalhandoDesde) fecharRodada(aba);
+  desenhar();
+}
+
+function aoInfo(info) {
+  const aba = porId(info.id);
+  if (!aba) return;
+  aba.info = { ...aba.info, ...info, tokens: info.tokens ?? aba.info?.tokens };
+  desenhar();
+}
+
+async function aoFim(id) {
+  const aba = porId(id);
+  if (!aba || aba.codigo !== null) return;
+  aba.codigo = (await invoke("codigo_saida", { id })) ?? 0;
+  fecharRodada(aba);
+  desenhar();
 }
 
 function fecharRodada(aba) {
@@ -184,7 +194,7 @@ const TAG = { trabalhando: "Trabalhando", pronto: "Pronto", parado: "Parado", en
 function tituloUtil(aba) {
   // tira os ícones de spinner que o claude/codex põem no começo do título
   const t = aba.titulo.replace(/^[^\p{L}\p{N}~/]+/u, "").trim();
-  const pasta = (aba.st?.pasta || aba.pasta || "").split("/").pop();
+  const pasta = (aba.info?.pasta || aba.pasta || "").split("/").pop();
   const generico = /^[^\s@]+@[^\s:]+(:|$)/.test(t) || t === pasta || /^(claude code|codex|claude)$/i.test(t);
   return generico ? "" : t;
 }
@@ -196,14 +206,14 @@ function rotulo(aba) {
 
 // Projeto em que a aba está: pasta do repositório git, ou a pasta atual
 function workspace(aba) {
-  return aba.st?.workspace || (aba.pasta || "").split("/").pop() || "—";
+  return aba.info?.workspace || (aba.pasta || "").split("/").pop() || "—";
 }
 
 // Nome curto (abas, lista de sessões)
 function nomeCurto(aba) {
   const t = tituloUtil(aba);
   if (t) return t;
-  return aba.tipo === "shell" ? `Shell · ${curto(aba.st?.pasta || aba.pasta)}` : rotulo(aba);
+  return aba.tipo === "shell" ? `Shell · ${curto(aba.info?.pasta || aba.pasta)}` : rotulo(aba);
 }
 
 // Nome com o agente na frente (cabeçalho do terminal)
@@ -219,7 +229,7 @@ function desenhar() {
   const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
   // abas
-  $("#abas").innerHTML = abas.map((x, i) => `
+  pôr("#abas", abas.map((x, i) => `
     <button class="aba ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(`${rotulo(x)} · ${nomeCurto(x)} — ${workspace(x)}`)}">
       <span class="ic ${estadoDe(x)}"></span>
       <span class="nome">${esc(nomeCurto(x))}</span>
@@ -228,7 +238,7 @@ function desenhar() {
     </button>`).join("") + `
     <button class="aba-mais" id="btn-mais" title="Nova aba (Ctrl+Shift+T)">
       <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-    </button>`;
+    </button>`);
 
   // quadros (títulos na grade)
   abas.forEach((x) => {
@@ -255,9 +265,9 @@ function desenhar() {
 
   // sessões
   $("#n-sessoes").textContent = abas.length;
-  $("#sessoes").innerHTML = abas.map((x, i) => {
+  pôr("#sessoes", abas.map((x, i) => {
     const e = estadoDe(x);
-    const desc = e === "trabalhando" ? `trabalhando há ${duracao(Date.now() - x.trabalhandoDesde)}`
+    const desc = e === "trabalhando" ? `trabalhando desde ${horaDe(x.trabalhandoDesde)}`
       : e === "pronto" ? "terminou, te esperando"
       : e === "encerrado" ? `encerrou (código ${x.codigo})`
       : "parado";
@@ -268,17 +278,17 @@ function desenhar() {
       <span class="tag ${e}">${esc(x.tipo === "claude" && x.conta && contas.length > 1 ? x.conta.nome : NOME[x.tipo])}</span>
       <small>${esc(`${workspace(x)} · ${desc}`)}</small>
     </li>`;
-  }).join("");
+  }).join(""));
 
   // cabeçalho do terminal
   if (a) {
     $("#ba-ic").className = `ic ${estadoDe(a)}`;
     $("#ba-titulo").textContent = nomeCompleto(a);
     $("#ba-pasta").textContent = workspace(a);
-    $("#ba-pasta").title = curto(a.st?.pasta || a.pasta);
+    $("#ba-pasta").title = curto(a.info?.pasta || a.pasta);
     const br = $("#ba-branch");
-    br.hidden = !a.st?.branch;
-    br.textContent = a.st?.branch ? `⎇ ${a.st.branch}` : "";
+    br.hidden = !a.info?.branch;
+    br.textContent = a.info?.branch ? `⎇ ${a.info.branch}` : "";
   }
 
   // agente ativo
@@ -291,15 +301,14 @@ function desenhar() {
     : op === "encerrado" ? "Processo encerrado"
     : tituloUtil(a) || "Aguardando instrução";
   $("#op-desc").textContent = !a ? "Nenhum agente aberto."
-    : op === "trabalhando" ? `${rotulo(a)} trabalhando em ${workspace(a)} há ${duracao(Date.now() - a.trabalhandoDesde)}.`
+    : op === "trabalhando" ? `${rotulo(a)} trabalhando em ${workspace(a)} desde ${horaDe(a.trabalhandoDesde)}.`
     : op === "pronto" ? `${rotulo(a)} terminou em ${workspace(a)} e está te esperando.`
     : op === "encerrado" ? `Saiu com código ${a.codigo}.`
     : `${rotulo(a)} parado em ${workspace(a)}, esperando você.`;
-  $("#op-trilho").className = op === "trabalhando" ? "correndo" : "";
 
   // detalhes
   if (a) {
-    const tk = a.st?.tokens;
+    const tk = a.info?.tokens;
     const pares = [
       ...(a.tipo === "claude" && a.conta ? [["Conta", a.conta.nome]] : []),
       ...(tk ? [
@@ -308,9 +317,9 @@ function desenhar() {
         ["Tokens usados", numero(tk.entrada + tk.cache_escrita + tk.saida)],
       ] : []),
     ];
-    $("#sinal").innerHTML = pares.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
+    pôr("#sinal", pares.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join(""));
   } else {
-    $("#sinal").innerHTML = "";
+    pôr("#sinal", "");
   }
 
 
@@ -320,13 +329,13 @@ function desenhar() {
 // Só os limites da conta da aba que você está vendo (Shell não tem).
 function desenharLimites() {
   const a = abas[ativa];
-  const lista = (sistema?.limites || []).filter((l) =>
-    a?.tipo === "codex" ? l.tipo === "codex"
-    : a?.tipo === "claude" ? l.tipo === "claude" && l.nome === a.conta?.nome
+  const lista = limites.filter((l) =>
+    a?.tipo === "codex" ? l.chave === "codex"
+    : a?.tipo === "claude" ? l.chave === a.conta?.dir
     : false);
   $("#card-limites").hidden = !a || a.tipo === "shell";
   $("#limites-conta").textContent = a?.tipo === "claude" ? a.conta?.nome || "" : a?.tipo === "codex" ? "Codex" : "";
-  $("#limites").innerHTML = lista.length ? lista.map((l) => `
+  pôr("#limites", lista.length ? lista.map((l) => `
     <div class="limite">
       ${l.erro ? `<small class="limite-erro">${esc(l.erro)}</small>` : [["Sessão", l.sessao], ["Semana", l.semana]]
         .filter(([, j]) => j)
@@ -337,7 +346,7 @@ function desenharLimites() {
           <b>${Math.round(j.pct)}%</b>
           <small title="zera ${esc(quando(j.zera, true))}">${esc(quando(j.zera))}</small>
         </div>`).join("")}
-    </div>`).join("") : `<small class="limite-erro">carregando…</small>`;
+    </div>`).join("") : `<small class="limite-erro">carregando…</small>`);
 }
 
 // ---------- menu de nova aba ----------
@@ -475,12 +484,6 @@ function curto(p) {
   if (!p) return "—";
   return home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
 }
-function duracao(ms) {
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
-  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
-}
 function hora() {
   return new Date().toLocaleTimeString("pt-BR", { hour12: false });
 }
@@ -496,6 +499,17 @@ function modelo(m) {
   if (!m.startsWith("claude-")) return m;
   const t = m.slice(7).replace(/-(\d+)-(\d+)(-\d{8})?$/, " $1.$2").replace(/-(\d+)$/, " $1");
   return t.charAt(0).toUpperCase() + t.slice(1);
+}
+// troca o HTML só se mudou (evita refazer a tela à toa)
+function pôr(sel, html) {
+  const el = $(sel);
+  if (el._html !== html) {
+    el._html = html;
+    el.innerHTML = html;
+  }
+}
+function horaDe(ms) {
+  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 function numero(n) {
   if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
@@ -525,7 +539,10 @@ function bytes(b64) {
   await listen("saida", ({ payload }) => {
     abas.find((a) => a.id === payload.id)?.term.write(bytes(payload.dados));
   });
-  await listen("fim", () => {}); // o código de saída chega pelo status
+  await listen("estado", ({ payload }) => aoEstado(payload));
+  await listen("info", ({ payload }) => aoInfo(payload));
+  await listen("fim", ({ payload }) => aoFim(payload));
+  await listen("limites", ({ payload }) => { limites = payload; desenhar(); });
 
   const ini = await invoke("inicio");
   home = ini.home;
@@ -533,9 +550,4 @@ function bytes(b64) {
 
   for (const tipo of ini.abas) await novaAba(tipo);
   ativar(0);
-
-  setInterval(async () => {
-    try { atualizarEstados(await invoke("status")); } catch {}
-    desenhar();
-  }, 500);
 })();

@@ -38,11 +38,16 @@ Depois de mexer no código (Rust ou `ui/`), rode `cargo build --release` de novo
 ## Como funciona
 
 - **Janela:** [Tauri](https://tauri.app). A interface é HTML/CSS/JS em `ui/`, os terminais são [xterm.js](https://xtermjs.org).
-- `src/pty.rs`: cada aba abre o programa numa PTY (terminal virtual). Uma thread lê a saída e manda para a janela (evento `saida`).
-- `src/telemetria.rs`: mede CPU/RAM de cada aba (somando os processos filhos), pasta atual e branch do git.
-- `src/main.rs`: os comandos que a janela chama (`abrir`, `escrever`, `redimensionar`, `fechar`, `status`).
-- `ui/app.js`: abas, estados ("trabalhando" = saiu coisa na tela há pouco e não foi o eco do que você digitou), atalhos e painéis.
-- `ui/estilo.css`: o visual (cinza, azul-escuro e azul-claro neon).
+- `src/pty.rs`: cada aba abre o programa numa PTY (terminal virtual). Uma thread lê a saída e manda para a janela.
+- `src/monitor.rs`: sabe se cada aba está trabalhando **sem ficar perguntando toda hora**. Tudo dorme até algo acontecer:
+  - Claude: grava `busy`/`idle` em `<config>/sessions/<pid>.json`; o Linux avisa quando o arquivo muda (inotify).
+  - Codex: grava `task_started`/`task_complete` e os tokens no arquivo da sessão em `~/.codex/sessions`; mesmo esquema.
+  - Shell: a saída do terminal acorda a thread da aba; 1,5 s de silêncio e ela volta a dormir.
+  - Limites de uso: buscados só ao trocar de aba ou quando um agente termina (no máximo 1x por minuto).
+- `src/uso.rs`: contas do Claude (`~/.claude`, `~/.claude-*`), tokens de cada sessão e limites.
+- `ui/app.js`: abas, atalhos e painéis. A tela só é redesenhada quando chega um evento.
+
+Parado, com 4 abas abertas, o easynow usa ~0,2% de CPU e ~260 MB de memória (a maior parte é o WebKit da janela).
 
 ## Próximo
 
