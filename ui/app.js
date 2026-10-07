@@ -8,20 +8,21 @@ const { listen } = window.__TAURI__.event;
 const $ = (s) => document.querySelector(s);
 
 const TEMA = {
-  background: "#0c1118",
-  foreground: "#d3dce6",
-  cursor: "#5fe1ff",
-  cursorAccent: "#0c1118",
-  selectionBackground: "rgba(95, 225, 255, 0.28)",
-  black: "#1a222c", brightBlack: "#4a5868",
-  red: "#ff6b81", brightRed: "#ff8fa0",
-  green: "#5fe3a1", brightGreen: "#8af0bd",
-  yellow: "#ffd479", brightYellow: "#ffe2a3",
-  blue: "#5aa9ff", brightBlue: "#8cc4ff",
-  magenta: "#b48cff", brightMagenta: "#cdb0ff",
-  cyan: "#5fe1ff", brightCyan: "#9df0ff",
-  white: "#c5ced8", brightWhite: "#f2f6fa",
+  background: "#131315",
+  foreground: "#e4e4e7",
+  cursor: "#4ade80",
+  cursorAccent: "#131315",
+  selectionBackground: "rgba(74, 222, 128, 0.25)",
+  black: "#1f1f23", brightBlack: "#52525b",
+  red: "#f87171", brightRed: "#fca5a5",
+  green: "#4ade80", brightGreen: "#86efac",
+  yellow: "#facc15", brightYellow: "#fde68a",
+  blue: "#60a5fa", brightBlue: "#93c5fd",
+  magenta: "#c084fc", brightMagenta: "#d8b4fe",
+  cyan: "#5eead4", brightCyan: "#99f6e4",
+  white: "#d4d4d8", brightWhite: "#fafafa",
 };
+const NOME = { claude: "Claude", codex: "Codex", shell: "Shell" };
 
 const abas = [];
 let ativa = -1;
@@ -43,7 +44,7 @@ async function novaAba(tipo, pastaDe = null) {
   const term = new Terminal({
     fontFamily: '"JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
     fontSize: 13,
-    lineHeight: 1.12,
+    lineHeight: 1.2,
     theme: TEMA,
     cursorBlink: true,
     scrollback: 10000,
@@ -75,10 +76,10 @@ async function novaAba(tipo, pastaDe = null) {
   try {
     aba.pasta = await invoke("abrir", { id, tipo, pastaDe, linhas: term.rows, colunas: term.cols });
     aba.tamanho = [term.rows, term.cols];
-    evento(aba, `aberta em ${curto(aba.pasta)}`);
+    evento(aba, `aberto em ${curto(aba.pasta)}`);
   } catch (e) {
     aba.codigo = -1;
-    evento(aba, `não abriu: ${e}`, true);
+    evento(aba, `não abriu: ${e}`, "erro");
   }
   desenhar();
 }
@@ -111,7 +112,7 @@ function pedirFechar(i) {
   if (aba.codigo !== null) return fechar(i);
   abrirModal(
     `Fechar a aba ${i + 1}?`,
-    `O ${aba.tipo} (${nomeCurto(aba)}) será encerrado.`,
+    `O ${NOME[aba.tipo]} (${nomeCurto(aba)}) será encerrado.`,
     () => fechar(i),
   );
 }
@@ -122,7 +123,7 @@ function fechar(i) {
   aba.term.dispose();
   aba.el.remove();
   abas.splice(i, 1);
-  evento(aba, "fechada");
+  evento(aba, "aba fechada");
   if (abas.length === 0) { ativa = -1; desenhar(); return; }
   ativar(Math.min(i, abas.length - 1));
 }
@@ -145,7 +146,7 @@ function atualizarEstados(status) {
     if (s.codigo_saida != null && aba.codigo === null) {
       aba.codigo = s.codigo_saida;
       fecharRodada(aba);
-      evento(aba, `encerrou (código ${aba.codigo})`, aba.codigo !== 0);
+      evento(aba, `encerrou (código ${aba.codigo})`, aba.codigo !== 0 ? "erro" : "");
       continue;
     }
     // "Trabalhando" = saiu coisa na tela há pouco, e não foi só o eco do que você digitou.
@@ -165,7 +166,7 @@ function fecharRodada(aba) {
   if (durou < 3000 || inicio - aba.aberta < 5000) return;
   aba.rodadas++;
   if (abas[ativa] !== aba) aba.aviso = true;
-  evento(aba, `terminou (${duracao(durou)})`);
+  evento(aba, `terminou depois de ${duracao(durou)}`, "bom");
 }
 
 function estadoDe(aba) {
@@ -175,32 +176,32 @@ function estadoDe(aba) {
   return "parado";
 }
 
-const TAG = { trabalhando: "TRABALHANDO", pronto: "PRONTO", parado: "OCIOSO", encerrado: "ENCERRADO" };
+const TAG = { trabalhando: "Trabalhando", pronto: "Pronto", parado: "Parado", encerrado: "Encerrado" };
 
 function nomeCurto(aba) {
   // tira os ícones de spinner que o claude/codex põem no começo do título
   const t = aba.titulo.replace(/^[^\p{L}\p{N}~/]+/u, "").trim();
-  return t || aba.tipo;
+  return t || NOME[aba.tipo];
 }
 
 // ---------- desenho ----------
 
 function desenhar() {
   const a = abas[ativa];
+  const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
   // abas
   $("#abas").innerHTML = abas.map((x, i) => `
     <button class="aba ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(nomeCurto(x))}">
-      <span class="n">${i + 1}</span>
       <span class="ic ${estadoDe(x)}"></span>
       <span class="nome">${esc(nomeCurto(x))}</span>
-      <span class="fechar" data-fechar="${i}">✕</span>
+      <span class="fechar" data-fechar="${i}">${X}</span>
     </button>`).join("");
 
   // quadros (títulos na grade)
   abas.forEach((x) => {
     x.el.querySelector(".quadro-topo .ic").className = `ic ${estadoDe(x)}`;
-    x.el.querySelector(".quadro-topo .t").textContent = `${abas.indexOf(x) + 1}  ${x.tipo} · ${nomeCurto(x)}`;
+    x.el.querySelector(".quadro-topo .t").textContent = `${NOME[x.tipo]} · ${nomeCurto(x)}`;
   });
   const t = $("#terminais");
   t.classList.toggle("grade", grade && abas.length > 1);
@@ -208,99 +209,90 @@ function desenhar() {
   $("#btn-grade").classList.toggle("ligado", grade);
   $("#vazio").hidden = abas.length > 0;
   t.hidden = abas.length === 0;
+  $("#barra-agente").hidden = abas.length === 0;
 
   // estado geral
   const trabalhando = abas.filter((x) => estadoDe(x) === "trabalhando").length;
   const esperando = abas.filter((x) => estadoDe(x) === "pronto").length;
   const eg = $("#estado-geral");
-  eg.className = trabalhando ? "trabalhando" : esperando ? "esperando" : "";
-  eg.textContent = trabalhando ? `${trabalhando} TRABALHANDO` : esperando ? `${esperando} TE ESPERANDO` : "OCIOSO";
+  eg.className = `estado ${trabalhando ? "trabalhando" : ""}`;
+  eg.textContent = trabalhando ? `${trabalhando} trabalhando`
+    : esperando ? `${esperando} te esperando` : "Tudo calmo";
 
-  // telemetria
+  // visão geral
   if (sistema) {
     const cpu = Math.round(sistema.cpu);
-    $("#cpu-pct").textContent = `${cpu}%`;
-    $("#anel-cpu").style.strokeDashoffset = 264 - (264 * Math.min(cpu, 100)) / 100;
     $("#cpu-txt").textContent = `${cpu}%`;
     $("#cpu-barra").style.width = `${cpu}%`;
     const mem = sistema.memoria_total ? (sistema.memoria_usada / sistema.memoria_total) * 100 : 0;
-    $("#ram-txt").textContent = `${tamanho(sistema.memoria_usada)} / ${tamanho(sistema.memoria_total)}`;
+    $("#ram-txt").textContent = `${tamanho(sistema.memoria_usada)} de ${tamanho(sistema.memoria_total)}`;
     $("#ram-barra").style.width = `${mem}%`;
-    const ramAgentes = abas.reduce((s, x) => s + (x.st?.memoria || 0), 0);
-    $("#ram-agentes").textContent = tamanho(ramAgentes);
+    $("#ram-agentes").textContent = tamanho(abas.reduce((s, x) => s + (x.st?.memoria || 0), 0));
   }
-  $("#n-trabalhando").textContent = `${trabalhando} / ${abas.length}`;
+  $("#n-trabalhando").textContent = trabalhando;
+  $("#n-trabalhando").classList.toggle("ativo", trabalhando > 0);
   $("#n-esperando").textContent = esperando;
 
-  // sessões (esquerda)
+  // sessões
   $("#n-sessoes").textContent = abas.length;
-  $("#sessoes").innerHTML = abas.map((x, i) => `
+  $("#sessoes").innerHTML = abas.map((x, i) => {
+    const e = estadoDe(x);
+    const desc = e === "trabalhando" ? `trabalhando há ${duracao(Date.now() - x.trabalhandoDesde)}`
+      : e === "pronto" ? "terminou, te esperando"
+      : e === "encerrado" ? `encerrou (código ${x.codigo})`
+      : curto(x.st?.pasta || x.pasta);
+    return `
     <li class="${i === ativa ? "ativa" : ""}" data-i="${i}">
-      <span class="ic ${estadoDe(x)}"></span>
-      <b>${i + 1} · ${x.tipo}</b>
-      <span class="tag ${estadoDe(x)}">${TAG[estadoDe(x)]}</span>
-      <small>${esc(x.titulo ? nomeCurto(x) : curto(x.st?.pasta || x.pasta))}</small>
-    </li>`).join("");
+      <span class="ic ${e}"></span>
+      <b>${esc(nomeCurto(x))}</b>
+      <span class="tag ${e}">${NOME[x.tipo]}</span>
+      <small>${esc(desc)}</small>
+    </li>`;
+  }).join("");
 
-  // barra do agente (centro)
-  const pasta = a ? a.st?.pasta || a.pasta : "";
-  $("#ba-tipo").textContent = a ? a.tipo : "—";
-  $("#ba-pasta").textContent = a ? curto(pasta) : "—";
-  $("#ba-branch").textContent = a?.st?.branch || "—";
-  $("#ba-rodando").textContent = a?.st?.rodando || "—";
-  $("#ba-tempo").textContent = a ? duracao(Date.now() - a.aberta) : "—";
+  // cabeçalho do terminal
+  if (a) {
+    $("#ba-ic").className = `ic ${estadoDe(a)}`;
+    $("#ba-titulo").textContent = `${NOME[a.tipo]} · ${nomeCurto(a)}`;
+    $("#ba-pasta").textContent = curto(a.st?.pasta || a.pasta);
+    const br = $("#ba-branch");
+    br.hidden = !a.st?.branch;
+    br.textContent = a.st?.branch ? `⎇ ${a.st.branch}` : "";
+  }
 
-  // operação ativa (direita)
-  $("#op-n").textContent = a ? `ABA ${ativa + 1}` : "";
+  // agente ativo
+  $("#op-n").textContent = a ? `aba ${ativa + 1}` : "";
   const op = a ? estadoDe(a) : null;
   const opTag = $("#op-tag");
   opTag.className = `tag ${op || ""}`;
-  opTag.textContent = op ? TAG[op] : "—";
-  const titulo = $("#op-titulo");
-  titulo.className = op === "trabalhando" ? "trabalhando" : "";
-  titulo.textContent = !a ? "Aguardando instrução"
-    : op === "trabalhando" ? nomeCurto(a)
+  opTag.textContent = op ? TAG[op] : "Nenhum";
+  $("#op-titulo").textContent = !a ? "Aguardando instrução"
     : op === "encerrado" ? "Processo encerrado"
     : a.titulo ? nomeCurto(a) : "Aguardando instrução";
   $("#op-desc").textContent = !a ? "Nenhum agente aberto."
-    : op === "trabalhando" ? `${a.tipo} trabalhando há ${duracao(Date.now() - a.trabalhandoDesde)}.`
-    : op === "encerrado" ? `O ${a.tipo} saiu com código ${a.codigo}. Feche a aba ou abra outra.`
-    : `${a.tipo} parado, esperando você.`;
+    : op === "trabalhando" ? `${NOME[a.tipo]} trabalhando há ${duracao(Date.now() - a.trabalhandoDesde)}.`
+    : op === "pronto" ? `${NOME[a.tipo]} terminou e está te esperando.`
+    : op === "encerrado" ? `Saiu com código ${a.codigo}.`
+    : `${NOME[a.tipo]} parado, esperando você.`;
   $("#op-trilho").className = op === "trabalhando" ? "correndo" : "";
 
-  // sinal
+  // detalhes
   if (a) {
     const trabalhou = a.tempoTrabalhando + (a.trabalhandoDesde ? Date.now() - a.trabalhandoDesde : 0);
     const aberta = Date.now() - a.aberta;
     const pares = [
-      ["ÚLTIMA SAÍDA", a.st ? `há ${duracao(a.st.ms_saida)}` : "—"],
-      ["TRABALHOU", `${duracao(trabalhou)} (${aberta ? Math.round((trabalhou / aberta) * 100) : 0}%)`],
-      ["RODADAS", a.rodadas],
+      ["Última atividade", a.st ? `há ${duracao(a.st.ms_saida)}` : "—"],
+      ["Tempo trabalhando", `${duracao(trabalhou)} · ${aberta ? Math.round((trabalhou / aberta) * 100) : 0}%`],
+      ["Aberto há", duracao(aberta)],
+      ["Rodando", a.st?.rodando || "—"],
       ["CPU", a.st ? `${Math.round(a.st.cpu)}%` : "—"],
-      ["MEMÓRIA", a.st ? tamanho(a.st.memoria) : "—"],
-      ["PROCESSOS", a.st?.processos ?? "—"],
-      ["SAÍDA TOTAL", a.st ? tamanho(a.st.bytes) : "—"],
+      ["Memória", a.st ? tamanho(a.st.memoria) : "—"],
+      ["Processos", a.st?.processos ?? "—"],
     ];
     $("#sinal").innerHTML = pares.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
   } else {
     $("#sinal").innerHTML = "";
   }
-
-  // orquestração
-  $("#orquestra").innerHTML = abas.map((x, i) => {
-    const e = estadoDe(x);
-    const desc = e === "trabalhando" ? `trabalhando há ${duracao(Date.now() - x.trabalhandoDesde)}`
-      : e === "pronto" ? "terminou, te esperando"
-      : e === "encerrado" ? `encerrou (código ${x.codigo})`
-      : `${x.rodadas} rodada${x.rodadas === 1 ? "" : "s"} · ${curto(x.st?.pasta || x.pasta)}`;
-    return `
-    <li class="${i === ativa ? "ativa" : ""}" data-i="${i}">
-      <span class="ic ${e}"></span>
-      <b>${esc(nomeCurto(x))}</b>
-      <span class="tag ${e}">${TAG[e]}</span>
-      <small>${esc(desc)}</small>
-    </li>`;
-  }).join("");
 
   $("#relogio").textContent = a ? relogio(Date.now() - a.aberta) : "00:00:00";
   $("#rodadas-total").textContent = abas.reduce((s, x) => s + x.rodadas, 0);
@@ -310,12 +302,14 @@ function desenhar() {
 
 // ---------- eventos (log) ----------
 
-function evento(aba, txt, erro = false) {
-  const i = abas.indexOf(aba);
-  const quem = i >= 0 ? `${i + 1} ${aba.tipo}` : aba.tipo;
+function evento(aba, txt, tipo = "") {
+  linhaLog(NOME[aba.tipo] + (abas.includes(aba) ? ` ${abas.indexOf(aba) + 1}` : ""), txt, tipo);
+}
+
+function linhaLog(quem, txt, tipo = "") {
   const p = document.createElement("p");
-  if (erro) p.className = "erro";
-  p.innerHTML = `<span class="h">// ${hora()}</span>  <span class="q">[${esc(quem)}]</span> ${esc(txt)}`;
+  p.className = tipo;
+  p.innerHTML = `<span class="h">${hora()}</span><span class="q">${esc(quem)}</span><span class="txt">${esc(txt)}</span>`;
   const log = $("#linhas-log");
   log.append(p);
   while (log.children.length > 200) log.firstChild.remove();
@@ -402,7 +396,7 @@ $("#abas").addEventListener("auxclick", (ev) => {
   const b = ev.target.closest("[data-i]");
   if (b && ev.button === 1) pedirFechar(Number(b.dataset.i));
 });
-for (const sel of ["#sessoes", "#orquestra"]) {
+for (const sel of ["#sessoes"]) {
   $(sel).addEventListener("click", (ev) => {
     const li = ev.target.closest("[data-i]");
     if (li) ativar(Number(li.dataset.i));
@@ -470,9 +464,7 @@ function bytes(b64) {
 
   const ini = await invoke("inicio");
   home = ini.home;
-  const p = document.createElement("p");
-  p.innerHTML = `<span class="h">// ${hora()}</span>  easynow iniciado em <span class="q">${esc(curto(ini.pasta))}</span>`;
-  $("#linhas-log").append(p);
+  linhaLog("easynow", `iniciado em ${curto(ini.pasta)}`);
 
   for (const tipo of ini.abas) await novaAba(tipo);
   ativar(0);
