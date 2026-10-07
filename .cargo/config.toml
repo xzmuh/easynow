@@ -1,0 +1,3 @@
+# O rust do Arch procura "x86_64-linux-gnu-gcc", que não existe aqui. Usa o cc normal.
+[target.x86_64-unknown-linux-gnu]
+linker = "cc"
