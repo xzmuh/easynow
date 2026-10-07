@@ -29,22 +29,6 @@
 
   <aside id="esquerda">
     <section class="card">
-      <h2>Visão geral</h2>
-      <div class="numeros">
-        <div><b id="n-trabalhando">0</b><span>trabalhando</span></div>
-        <div><b id="n-esperando">0</b><span>esperando</span></div>
-      </div>
-      <div class="medidor">
-        <div class="medidor-topo"><span>CPU</span><b id="cpu-txt">0%</b></div>
-        <div class="trilho"><i id="cpu-barra"></i></div>
-      </div>
-      <div class="medidor">
-        <div class="medidor-topo"><span>Memória</span><b id="ram-txt">—</b></div>
-        <div class="trilho"><i id="ram-barra"></i></div>
-      </div>
-    </section>
-
-    <section class="card">
       <h2>Limites <span class="contador">atualiza a cada 2 min</span></h2>
       <div id="limites"></div>
     </section>
@@ -79,30 +63,16 @@
   </main>
 
   <aside id="direita">
-    <section class="card">
+    <section class="card cresce">
       <h2>Agente ativo <span id="op-n" class="contador"></span></h2>
       <span id="op-tag" class="tag">—</span>
       <b id="op-titulo">Aguardando instrução</b>
       <p id="op-desc">Nenhum agente aberto.</p>
       <div class="trilho"><i id="op-trilho"></i></div>
-    </section>
-
-    <section class="card cresce">
-      <h2>Detalhes</h2>
       <dl id="sinal" class="pares"></dl>
-    </section>
-
-    <section class="card rodape-direita">
-      <div><span>Sessão</span><b id="relogio">00:00:00</b></div>
-      <div><span>Rodadas</span><b id="rodadas-total">0</b></div>
-      <div><span>Voz</span><b class="desligado">em breve</b></div>
     </section>
   </aside>
 
-  <footer id="log" class="card">
-    <h2>Atividade</h2>
-    <div id="linhas-log"></div>
-  </footer>
 
 </div>
 

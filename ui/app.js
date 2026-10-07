@@ -78,10 +78,9 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
   try {
     aba.pasta = await invoke("abrir", { id, tipo, conta: conta?.dir ?? null, pastaDe, linhas: term.rows, colunas: term.cols });
     aba.tamanho = [term.rows, term.cols];
-    evento(aba, `aberto em ${curto(aba.pasta)}`);
   } catch (e) {
     aba.codigo = -1;
-    evento(aba, `não abriu: ${e}`, "erro");
+    term.write(`\r\n  Não consegui abrir o ${rotulo(aba)}: ${e}\r\n`);
   }
   desenhar();
 }
@@ -125,7 +124,6 @@ function fechar(i) {
   aba.term.dispose();
   aba.el.remove();
   abas.splice(i, 1);
-  evento(aba, "aba fechada");
   if (abas.length === 0) { ativa = -1; desenhar(); return; }
   ativar(Math.min(i, abas.length - 1));
 }
@@ -148,7 +146,6 @@ function atualizarEstados(status) {
     if (s.codigo_saida != null && aba.codigo === null) {
       aba.codigo = s.codigo_saida;
       fecharRodada(aba);
-      evento(aba, `encerrou (código ${aba.codigo})`, aba.codigo !== 0 ? "erro" : "");
       continue;
     }
     // "Trabalhando" = saiu coisa na tela há pouco, e não foi só o eco do que você digitou.
@@ -172,7 +169,6 @@ function fecharRodada(aba) {
   if (durou < 3000 || inicio - aba.aberta < 5000) return;
   aba.rodadas++;
   if (abas[ativa] !== aba) aba.aviso = true;
-  evento(aba, `terminou depois de ${duracao(durou)}`, "bom");
 }
 
 function estadoDe(aba) {
@@ -255,19 +251,7 @@ function desenhar() {
   eg.textContent = trabalhando ? `${trabalhando} trabalhando`
     : esperando ? `${esperando} te esperando` : "Tudo calmo";
 
-  // visão geral
-  if (sistema) {
-    const cpu = Math.round(sistema.cpu);
-    $("#cpu-txt").textContent = `${cpu}%`;
-    $("#cpu-barra").style.width = `${cpu}%`;
-    const mem = sistema.memoria_total ? (sistema.memoria_usada / sistema.memoria_total) * 100 : 0;
-    $("#ram-txt").textContent = `${tamanho(sistema.memoria_usada)} de ${tamanho(sistema.memoria_total)}`;
-    $("#ram-barra").style.width = `${mem}%`;
-  }
   desenharLimites();
-  $("#n-trabalhando").textContent = trabalhando;
-  $("#n-trabalhando").classList.toggle("ativo", trabalhando > 0);
-  $("#n-esperando").textContent = esperando;
 
   // sessões
   $("#n-sessoes").textContent = abas.length;
@@ -315,30 +299,20 @@ function desenhar() {
 
   // detalhes
   if (a) {
-    const trabalhou = a.tempoTrabalhando + (a.trabalhandoDesde ? Date.now() - a.trabalhandoDesde : 0);
-    const aberta = Date.now() - a.aberta;
     const tk = a.st?.tokens;
     const pares = [
-      ["Workspace", workspace(a)],
       ...(a.tipo === "claude" && a.conta ? [["Conta", a.conta.nome]] : []),
       ...(tk ? [
         ["Modelo", modelo(tk.modelo)],
         ["Contexto", numero(tk.contexto)],
-        ["Tokens de saída", numero(tk.saida)],
-        ["Tokens de entrada", numero(tk.entrada + tk.cache_escrita)],
-        ["Lidos do cache", numero(tk.cache_leitura)],
-      ] : [["Rodando", a.st?.rodando || "—"]]),
-      ["Última atividade", a.st ? `há ${duracao(a.st.ms_saida)}` : "—"],
-      ["Tempo trabalhando", `${duracao(trabalhou)} · ${aberta ? Math.round((trabalhou / aberta) * 100) : 0}%`],
-      ["CPU · memória", a.st ? `${Math.round(a.st.cpu)}% · ${tamanho(a.st.memoria)}` : "—"],
+        ["Tokens usados", numero(tk.entrada + tk.cache_escrita + tk.saida)],
+      ] : []),
     ];
     $("#sinal").innerHTML = pares.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
   } else {
     $("#sinal").innerHTML = "";
   }
 
-  $("#relogio").textContent = a ? relogio(Date.now() - a.aberta) : "00:00:00";
-  $("#rodadas-total").textContent = abas.reduce((s, x) => s + x.rodadas, 0);
 
   document.title = a ? `easynow · ${nomeCurto(a)}` : "easynow";
 }
@@ -384,22 +358,6 @@ function escolher(i) {
   const o = opcoesNovo()[i];
   $("#menu-novo").hidden = true;
   if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
-}
-
-// ---------- eventos (log) ----------
-
-function evento(aba, txt, tipo = "") {
-  linhaLog(rotulo(aba) + (abas.includes(aba) ? ` ${abas.indexOf(aba) + 1}` : ""), txt, tipo);
-}
-
-function linhaLog(quem, txt, tipo = "") {
-  const p = document.createElement("p");
-  p.className = tipo;
-  p.innerHTML = `<span class="h">${hora()}</span><span class="q">${esc(quem)}</span><span class="txt">${esc(txt)}</span>`;
-  const log = $("#linhas-log");
-  log.append(p);
-  while (log.children.length > 200) log.firstChild.remove();
-  log.scrollTop = log.scrollHeight;
 }
 
 // ---------- atalhos ----------
@@ -517,10 +475,6 @@ function duracao(ms) {
   if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
   return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
-function relogio(ms) {
-  const s = Math.floor(ms / 1000);
-  return [s / 3600, (s % 3600) / 60, s % 60].map((n) => String(Math.floor(n)).padStart(2, "0")).join(":");
-}
 function hora() {
   return new Date().toLocaleTimeString("pt-BR", { hour12: false });
 }
@@ -570,7 +524,6 @@ function bytes(b64) {
   const ini = await invoke("inicio");
   home = ini.home;
   contas = ini.contas || [];
-  linhaLog("easynow", `iniciado em ${curto(ini.pasta)}`);
 
   for (const tipo of ini.abas) await novaAba(tipo);
   ativar(0);

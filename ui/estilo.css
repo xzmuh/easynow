@@ -60,11 +60,10 @@ kbd {
   height: 100vh;
   padding: 0 14px 14px;
   grid-template-columns: 250px minmax(0, 1fr) 280px;
-  grid-template-rows: 64px minmax(0, 1fr) 156px;
+  grid-template-rows: 64px minmax(0, 1fr);
   grid-template-areas:
     "topo topo topo"
-    "esq centro dir"
-    "esq log dir";
+    "esq centro dir";
   gap: 14px;
 }
 
@@ -266,27 +265,7 @@ h2 {
 #direita { grid-area: dir; }
 .card.cresce { flex: 1; overflow-y: auto; scrollbar-width: none; }
 
-.numeros { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
-.numeros div {
-  display: flex; flex-direction: column;
-  padding: 14px;
-  border-radius: var(--raio-p);
-  background: var(--card-2);
-}
-.numeros b { font-size: 24px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.numeros span { color: var(--apagado); font-size: 12px; }
-#n-trabalhando.ativo { color: var(--verde); }
 
-.medidor { margin-bottom: 12px; }
-.medidor:last-child { margin-bottom: 0; }
-.medidor-topo {
-  display: flex; justify-content: space-between; align-items: baseline;
-  margin-bottom: 7px;
-  color: var(--texto-2);
-  font-size: 12.5px;
-}
-.medidor-topo b { font-weight: 500; color: var(--texto); font-variant-numeric: tabular-nums; }
-.medidor-topo.pequeno { margin: 0; font-size: 12px; }
 
 /* limites */
 #limites { display: flex; flex-direction: column; gap: 14px; }
@@ -370,17 +349,12 @@ h2 {
   -webkit-box-orient: vertical;
 }
 #op-desc { margin: 6px 0 16px; color: var(--texto-2); }
+#direita .pares { margin-top: 24px; }
 
 .pares { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 12px 16px; }
 .pares dt { color: var(--apagado); }
 .pares dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
-.rodape-direita { display: grid; grid-template-columns: 1.3fr 0.9fr 1fr; gap: 10px; }
-.rodape-direita div { display: flex; flex-direction: column; gap: 2px; }
-.rodape-direita span { color: var(--apagado); font-size: 12px; }
-.rodape-direita b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-#relogio { color: var(--verde); }
-.desligado { color: var(--apagado); font-weight: 500 !important; font-size: 13px !important; }
 
 /* ---------- centro ---------- */
 
@@ -478,26 +452,6 @@ h2 {
 #vazio div { display: flex; gap: 10px; margin-top: 16px; }
 #vazio[hidden] { display: none; }
 
-/* ---------- atividade ---------- */
-
-#log { grid-area: log; display: flex; flex-direction: column; padding-bottom: 14px; }
-#log h2 { margin-bottom: 10px; }
-#linhas-log { flex: 1; overflow-y: auto; scrollbar-width: none; user-select: text; }
-#linhas-log p {
-  display: flex;
-  gap: 14px;
-  margin: 0;
-  line-height: 22px;
-  color: var(--texto-2);
-  white-space: nowrap;
-  overflow: hidden;
-}
-#linhas-log p .h { color: var(--apagado); font-variant-numeric: tabular-nums; width: 62px; flex-shrink: 0; }
-#linhas-log p .q { color: var(--texto); font-weight: 500; flex-shrink: 0; }
-#linhas-log p .txt { overflow: hidden; text-overflow: ellipsis; }
-#linhas-log p.bom .txt { color: var(--verde); }
-#linhas-log p.erro .txt { color: var(--vermelho); }
-
 /* ---------- modal ---------- */
 
 #modal {
@@ -516,7 +470,7 @@ h2 {
 
 /* tela menor: some com a coluna da direita */
 @media (max-width: 1250px) {
-  #app { grid-template-columns: 230px minmax(0, 1fr); grid-template-areas: "topo topo" "esq centro" "esq log"; }
+  #app { grid-template-columns: 230px minmax(0, 1fr); grid-template-areas: "topo topo" "esq centro"; }
   #direita { display: none; }
   .marca { width: 230px; }
 }
