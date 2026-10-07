@@ -416,41 +416,82 @@ function terminarOrb() {
   }, 1200);
 }
 
-// Matriz de pontos em forma de esfera: cada ponto acende e cresce com ondas que
-// saem do centro; quanto mais alta a voz, mais fortes as ondas.
+// Esfera neural: pontos espalhados por igual numa bola (espiral de Fibonacci),
+// ligados aos vizinhos mais próximos, girando em 3D. A voz faz a superfície ondular
+// e acende pontos e ligações. Os pontos e as ligações são calculados uma vez só.
+const esfera = (() => {
+  const N = 420;
+  const pts = [];
+  const ouro = Math.PI * (3 - Math.sqrt(5));
+  for (let i = 0; i < N; i++) {
+    const y = 1 - (i / (N - 1)) * 2;
+    const r = Math.sqrt(1 - y * y);
+    const a = ouro * i;
+    pts.push([Math.cos(a) * r, y, Math.sin(a) * r]);
+  }
+  const ligacoes = [];
+  pts.forEach((p, i) => {
+    const perto = pts
+      .map((q, j) => [j, (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 + (p[2] - q[2]) ** 2])
+      .filter(([j]) => j > i)
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, 2);
+    perto.forEach(([j]) => ligacoes.push([i, j]));
+  });
+  return { pts, ligacoes, giro: 0, tela: new Float32Array(N * 4) };
+})();
+
 function desenharOrb(t) {
   const c = $("#orb canvas");
   const g = c.getContext("2d");
   const W = c.width, m = W / 2;
-  voz.nivel += (voz.alvo - voz.nivel) * 0.2;
+  voz.nivel += (voz.alvo - voz.nivel) * 0.18;
   const n = voz.nivel;
   g.clearRect(0, 0, W, W);
 
-  const N = 25;                 // pontos por linha
-  const passo = W / (N + 1);
-  const R = (N / 2) * passo;    // raio da esfera
-  for (let y = 0; y < N; y++) {
-    for (let x = 0; x < N; x++) {
-      const px = (x + 1) * passo, py = (y + 1) * passo;
-      const dx = px - m, dy = py - m;
-      const d = Math.hypot(dx, dy) / R;
-      if (d > 1) continue;
-      // volume da esfera (mais claro no centro) + ondas que saem do centro
-      const esfera = Math.sqrt(1 - d * d);
-      const onda = 0.5 + 0.5 * Math.sin(d * 11 - t / 110);
-      const textura = 0.5 + 0.5 * Math.sin(x * 0.9 + t / 260) * Math.cos(y * 0.8 - t / 340);
-      const calmo = voz.ouvindo ? 0 : 0.12 * (0.5 + 0.5 * Math.sin(t / 220 - d * 4));
-      let v = esfera * 0.22 + calmo + n * (0.7 * onda * (1 - d * 0.35) + 0.35 * textura);
-      v = Math.min(1, v);
-      const raio = passo * (0.1 + 0.32 * v);
-      // pontos fracos verdes, os mais fortes quase brancos
-      const l = Math.round(55 + 30 * v);
-      g.fillStyle = `hsla(142, 76%, ${l}%, ${0.18 + 0.82 * v})`;
-      g.beginPath();
-      g.arc(px, py, raio, 0, Math.PI * 2);
-      g.fill();
-    }
+  esfera.giro += 0.004 + n * 0.025;
+  const ay = esfera.giro, ax = 0.4 + 0.15 * Math.sin(t / 2600);
+  const cy = Math.cos(ay), sy = Math.sin(ay), cx = Math.cos(ax), sx = Math.sin(ax);
+  const R = W * 0.3;
+  const respira = voz.ouvindo ? 0 : 0.03 * Math.sin(t / 260);
+
+  // gira, ondula com a voz e projeta cada ponto na tela
+  const tl = esfera.tela;
+  esfera.pts.forEach(([x, y, z], i) => {
+    const onda = Math.sin(x * 4 + t / 170) * Math.cos(y * 5 - t / 210) * Math.sin(z * 3 + t / 250);
+    const d = 1 + respira + n * 0.3 * onda;
+    let X = x * cy + z * sy, Z = -x * sy + z * cy;
+    let Y = y * cx - Z * sx;
+    Z = y * sx + Z * cx;
+    const perto = 2.6 / (2.6 - Z); // perspectiva
+    tl[i * 4] = m + X * d * R * perto;
+    tl[i * 4 + 1] = m + Y * d * R * perto;
+    tl[i * 4 + 2] = (Z + 1) / 2; // 0 = atrás, 1 = na frente
+    tl[i * 4 + 3] = Math.max(0, onda) * n; // quanto a voz acendeu esse ponto
+  });
+
+  // ligações (mais fracas atrás, mais fortes com a voz)
+  g.lineWidth = W / 500;
+  for (const [a, b] of esfera.ligacoes) {
+    const prof = (tl[a * 4 + 2] + tl[b * 4 + 2]) / 2;
+    const luz = (tl[a * 4 + 3] + tl[b * 4 + 3]) / 2;
+    g.strokeStyle = `rgba(74, 222, 128, ${0.07 + prof * 0.23 + luz * 0.6})`;
+    g.beginPath();
+    g.moveTo(tl[a * 4], tl[a * 4 + 1]);
+    g.lineTo(tl[b * 4], tl[b * 4 + 1]);
+    g.stroke();
   }
+
+  // pontos
+  for (let i = 0; i < esfera.pts.length; i++) {
+    const prof = tl[i * 4 + 2], luz = tl[i * 4 + 3];
+    const v = Math.min(1, 0.15 + prof * 0.55 + luz * 1.2);
+    g.fillStyle = `hsla(142, 76%, ${Math.round(52 + 38 * luz)}%, ${0.15 + 0.85 * v})`;
+    g.beginPath();
+    g.arc(tl[i * 4], tl[i * 4 + 1], W * (0.0035 + 0.006 * prof + 0.008 * luz), 0, Math.PI * 2);
+    g.fill();
+  }
+
   voz.quadro = requestAnimationFrame(desenharOrb);
 }
 
