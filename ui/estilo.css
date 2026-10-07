@@ -450,6 +450,36 @@ h2 {
 #vazio div { display: flex; gap: 10px; margin-top: 16px; }
 #vazio[hidden] { display: none; }
 
+/* ---------- orb da voz ---------- */
+
+#centro { position: relative; }
+#orb {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%) scale(0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
+  /* fundo escuro só atrás do orb, para não brigar com o texto do terminal */
+  background: radial-gradient(closest-side at 50% 45%, rgba(19, 19, 21, 0.95) 0, rgba(19, 19, 21, 0.8) 60%, rgba(19, 19, 21, 0) 100%);
+  padding: 10px 40px 14px;
+}
+#orb.visivel {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) scale(1);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+#orb canvas { width: 180px; height: 180px; }
+#orb-texto { font-size: 13px; font-weight: 500; color: var(--verde); margin-top: -14px; }
+#orb.transcrevendo #orb-texto { color: var(--texto-2); }
+
 /* ---------- modal ---------- */
 
 #modal {

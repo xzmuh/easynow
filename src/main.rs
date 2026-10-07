@@ -5,6 +5,7 @@
 mod monitor;
 mod pty;
 mod uso;
+mod voz;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -115,6 +116,22 @@ fn pedir_limites(monitor: State<Arc<Monitor>>, chave: Option<String>) {
     monitor.pedir_limites(chave);
 }
 
+/// Segurou espaço numa aba do Claude: liga a medição de volume para o orb.
+#[tauri::command]
+fn voz_ouvir(app: AppHandle, mic: State<voz::Microfone>) {
+    mic.iniciar(app);
+}
+
+#[tauri::command]
+fn voz_parar(mic: State<voz::Microfone>) {
+    mic.parar();
+}
+
+#[tauri::command]
+fn voz_ligada(dir: String) -> bool {
+    voz::ligada(&dir)
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
@@ -169,6 +186,7 @@ fn main() {
 
     tauri::Builder::default()
         .manage(estado)
+        .manage(voz::Microfone::default())
         .setup(move |app| {
             app.manage(Monitor::iniciar(app.handle().clone(), contas.clone()));
             Ok(())
@@ -180,7 +198,10 @@ fn main() {
             redimensionar,
             fechar,
             codigo_saida,
-            pedir_limites
+            pedir_limites,
+            voz_ouvir,
+            voz_parar,
+            voz_ligada
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir a janela");

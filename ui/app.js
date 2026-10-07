@@ -108,6 +108,8 @@ function ativar(i) {
   abas.forEach((a, j) => a.el.classList.toggle("ativo", j === i));
   const a = abas[i];
   if (a.tipo === "claude" && a.conta) invoke("pedir_limites", { chave: a.conta.dir });
+  conferirVoz(a);
+  terminarOrb();
   desenhar();
   requestAnimationFrame(() => {
     abas.forEach(ajustar);
@@ -375,10 +377,111 @@ function escolher(i) {
   if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
 }
 
+// ---------- voz (orb) ----------
+// Quem ouve e transcreve é o /voice do Claude (segurando espaço). O easynow só mostra
+// o orb enquanto o espaço está segurado, reagindo ao volume do microfone.
+
+const voz = { ouvindo: false, nivel: 0, alvo: 0, quadro: 0, saida: 0, ligada: {} };
+
+function conferirVoz(aba) {
+  const dir = aba?.tipo === "claude" && aba.conta?.dir;
+  if (dir) invoke("voz_ligada", { dir }).then((v) => { voz.ligada[dir] = v; });
+}
+
+function começarOrb() {
+  voz.ouvindo = true;
+  clearTimeout(voz.saida);
+  const orb = $("#orb");
+  orb.classList.remove("transcrevendo");
+  $("#orb-texto").textContent = "Ouvindo…";
+  orb.classList.add("visivel");
+  invoke("voz_ouvir");
+  if (!voz.quadro) voz.quadro = requestAnimationFrame(desenharOrb);
+}
+
+function terminarOrb() {
+  if (!voz.ouvindo) return;
+  voz.ouvindo = false;
+  voz.alvo = 0;
+  invoke("voz_parar");
+  const orb = $("#orb");
+  orb.classList.add("transcrevendo");
+  $("#orb-texto").textContent = "Transcrevendo…";
+  voz.saida = setTimeout(() => {
+    orb.classList.remove("visivel");
+    // espera o sumiço terminar e para a animação (zero gasto parado)
+    setTimeout(() => {
+      if (!voz.ouvindo) { cancelAnimationFrame(voz.quadro); voz.quadro = 0; }
+    }, 300);
+  }, 1200);
+}
+
+function desenharOrb(t) {
+  const c = $("#orb canvas");
+  const g = c.getContext("2d");
+  const W = c.width, m = W / 2;
+  voz.nivel += (voz.alvo - voz.nivel) * 0.22;
+  const n = voz.nivel;
+  g.clearRect(0, 0, W, W);
+
+  // brilho em volta
+  const brilho = g.createRadialGradient(m, m, W * 0.12, m, m, W * 0.5);
+  brilho.addColorStop(0, `rgba(74, 222, 128, ${0.16 + n * 0.34})`);
+  brilho.addColorStop(1, "rgba(74, 222, 128, 0)");
+  g.fillStyle = brilho;
+  g.fillRect(0, 0, W, W);
+
+  // anel de barrinhas que cresce com a voz
+  const N = 72, r0 = W * 0.235;
+  g.lineCap = "round";
+  g.lineWidth = W / 110;
+  for (let i = 0; i < N; i++) {
+    const ang = (i / N) * Math.PI * 2;
+    const onda = 0.5 + 0.5 * Math.sin(ang * 5 + t / 230) * Math.sin(ang * 3 - t / 370);
+    const len = W * 0.012 + n * W * 0.15 * onda + (voz.ouvindo ? W * 0.006 * (1 + Math.sin(t / 280 + i)) : 0);
+    g.strokeStyle = `rgba(134, 239, 172, ${0.3 + 0.7 * onda * Math.max(n, 0.18)})`;
+    g.beginPath();
+    g.moveTo(m + Math.cos(ang) * r0, m + Math.sin(ang) * r0);
+    g.lineTo(m + Math.cos(ang) * (r0 + len), m + Math.sin(ang) * (r0 + len));
+    g.stroke();
+  }
+
+  // núcleo
+  const rc = W * 0.15 * (1 + n * 0.22 + (voz.ouvindo ? 0 : 0.04 * Math.sin(t / 160)));
+  const nucleo = g.createRadialGradient(m - rc * 0.35, m - rc * 0.35, rc * 0.1, m, m, rc);
+  nucleo.addColorStop(0, "#dcfce7");
+  nucleo.addColorStop(0.45, "#4ade80");
+  nucleo.addColorStop(1, "#15803d");
+  g.fillStyle = nucleo;
+  g.beginPath();
+  g.arc(m, m, rc, 0, Math.PI * 2);
+  g.fill();
+
+  // arco fino girando por fora
+  g.strokeStyle = "rgba(74, 222, 128, 0.45)";
+  g.lineWidth = W / 220;
+  g.beginPath();
+  g.arc(m, m, W * 0.43, t / 900, t / 900 + Math.PI * 1.25);
+  g.stroke();
+
+  voz.quadro = requestAnimationFrame(desenharOrb);
+}
+
 // ---------- atalhos ----------
 
 // Devolve true se a tecla foi um atalho do easynow (aí ela não vai para o programa).
 function atalho(ev) {
+  // Espaço segurado numa aba do Claude com /voice ligado: mostra o orb.
+  // O espaço sempre segue para o Claude (é ele quem grava).
+  if (ev.code === "Space" && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
+    const a = abas[ativa];
+    if (ev.type === "keydown" && ev.repeat && !voz.ouvindo && a?.tipo === "claude" && voz.ligada[a.conta?.dir]) {
+      começarOrb();
+    } else if (ev.type === "keyup") {
+      terminarOrb();
+    }
+    return false;
+  }
   if (ev.type !== "keydown") return false;
   const k = ev.key.toLowerCase();
 
@@ -417,6 +520,10 @@ function atalho(ev) {
   ev.preventDefault();
   return true;
 }
+
+// soltou o espaço fora do terminal, ou a janela perdeu o foco: some o orb
+window.addEventListener("keyup", (ev) => { if (ev.code === "Space") terminarOrb(); });
+window.addEventListener("blur", terminarOrb);
 
 // teclas quando nenhum terminal está com o foco (tela vazia, menu aberto...)
 window.addEventListener("keydown", (ev) => {
@@ -543,6 +650,7 @@ function bytes(b64) {
   await listen("info", ({ payload }) => aoInfo(payload));
   await listen("fim", ({ payload }) => aoFim(payload));
   await listen("limites", ({ payload }) => { limites = payload; desenhar(); });
+  await listen("nivel", ({ payload }) => { voz.alvo = payload; });
 
   const ini = await invoke("inicio");
   home = ini.home;
