@@ -30,11 +30,13 @@ let grade = false;
 let proxId = 1;
 let home = "";
 let sistema = null;
+let contas = []; // contas do Claude (Next SI, Nuveto...)
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
 
 // ---------- abas ----------
 
-async function novaAba(tipo, pastaDe = null) {
+async function novaAba(tipo, pastaDe = null, conta = null) {
+  if (tipo === "claude" && !conta) conta = contas[0] || null;
   const id = proxId++;
   const el = document.createElement("div");
   el.className = "quadro";
@@ -54,7 +56,7 @@ async function novaAba(tipo, pastaDe = null) {
   term.loadAddon(fit);
 
   const aba = {
-    id, tipo, term, fit, el,
+    id, tipo, conta, term, fit, el,
     titulo: "", pasta: "", aberta: Date.now(),
     trabalhandoDesde: null, tempoTrabalhando: 0, rodadas: 0,
     aviso: false, codigo: null, st: null, tamanho: [0, 0],
@@ -74,7 +76,7 @@ async function novaAba(tipo, pastaDe = null) {
   new ResizeObserver(() => ajustar(aba)).observe(el);
 
   try {
-    aba.pasta = await invoke("abrir", { id, tipo, pastaDe, linhas: term.rows, colunas: term.cols });
+    aba.pasta = await invoke("abrir", { id, tipo, conta: conta?.dir ?? null, pastaDe, linhas: term.rows, colunas: term.cols });
     aba.tamanho = [term.rows, term.cols];
     evento(aba, `aberto em ${curto(aba.pasta)}`);
   } catch (e) {
@@ -112,7 +114,7 @@ function pedirFechar(i) {
   if (aba.codigo !== null) return fechar(i);
   abrirModal(
     `Fechar a aba ${i + 1}?`,
-    `O ${NOME[aba.tipo]} (${nomeCurto(aba)}) será encerrado.`,
+    `O ${rotulo(aba)} (${nomeCurto(aba)}) será encerrado.`,
     () => fechar(i),
   );
 }
@@ -150,7 +152,11 @@ function atualizarEstados(status) {
       continue;
     }
     // "Trabalhando" = saiu coisa na tela há pouco, e não foi só o eco do que você digitou.
-    const ocupada = aba.codigo === null && s.ms_saida < 1500 && s.ms_entrada - s.ms_saida > 400;
+    // O Claude grava se está "busy"; nos outros, vale a regra acima.
+    const doClaude = s.tokens?.status;
+    const ocupada = aba.codigo === null && (doClaude
+      ? doClaude === "busy"
+      : s.ms_saida < 1500 && s.ms_entrada - s.ms_saida > 400);
     if (ocupada && !aba.trabalhandoDesde) aba.trabalhandoDesde = agora;
     else if (!ocupada && aba.trabalhandoDesde) fecharRodada(aba);
   }
@@ -187,17 +193,27 @@ function tituloUtil(aba) {
   return generico ? "" : t;
 }
 
+// "Claude · Nuveto", "Codex", "Shell"
+function rotulo(aba) {
+  return aba.tipo === "claude" && aba.conta && contas.length > 1 ? `Claude · ${aba.conta.nome}` : NOME[aba.tipo];
+}
+
+// Projeto em que a aba está: pasta do repositório git, ou a pasta atual
+function workspace(aba) {
+  return aba.st?.workspace || (aba.pasta || "").split("/").pop() || "—";
+}
+
 // Nome curto (abas, lista de sessões)
 function nomeCurto(aba) {
   const t = tituloUtil(aba);
   if (t) return t;
-  return aba.tipo === "shell" ? `Shell · ${curto(aba.st?.pasta || aba.pasta)}` : NOME[aba.tipo];
+  return aba.tipo === "shell" ? `Shell · ${curto(aba.st?.pasta || aba.pasta)}` : rotulo(aba);
 }
 
 // Nome com o agente na frente (cabeçalho do terminal)
 function nomeCompleto(aba) {
   const t = tituloUtil(aba);
-  return t ? `${NOME[aba.tipo]} · ${t}` : nomeCurto(aba);
+  return t ? `${rotulo(aba)} · ${t}` : nomeCurto(aba);
 }
 
 // ---------- desenho ----------
@@ -208,11 +224,15 @@ function desenhar() {
 
   // abas
   $("#abas").innerHTML = abas.map((x, i) => `
-    <button class="aba ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(nomeCurto(x))}">
+    <button class="aba ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(`${rotulo(x)} · ${nomeCurto(x)} — ${workspace(x)}`)}">
       <span class="ic ${estadoDe(x)}"></span>
       <span class="nome">${esc(nomeCurto(x))}</span>
+      <span class="ws">${esc(workspace(x))}</span>
       <span class="fechar" data-fechar="${i}">${X}</span>
-    </button>`).join("");
+    </button>`).join("") + `
+    <button class="aba-mais" id="btn-mais" title="Nova aba (Ctrl+Shift+T)">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+    </button>`;
 
   // quadros (títulos na grade)
   abas.forEach((x) => {
@@ -243,8 +263,8 @@ function desenhar() {
     const mem = sistema.memoria_total ? (sistema.memoria_usada / sistema.memoria_total) * 100 : 0;
     $("#ram-txt").textContent = `${tamanho(sistema.memoria_usada)} de ${tamanho(sistema.memoria_total)}`;
     $("#ram-barra").style.width = `${mem}%`;
-    $("#ram-agentes").textContent = tamanho(abas.reduce((s, x) => s + (x.st?.memoria || 0), 0));
   }
+  desenharLimites();
   $("#n-trabalhando").textContent = trabalhando;
   $("#n-trabalhando").classList.toggle("ativo", trabalhando > 0);
   $("#n-esperando").textContent = esperando;
@@ -256,13 +276,13 @@ function desenhar() {
     const desc = e === "trabalhando" ? `trabalhando há ${duracao(Date.now() - x.trabalhandoDesde)}`
       : e === "pronto" ? "terminou, te esperando"
       : e === "encerrado" ? `encerrou (código ${x.codigo})`
-      : curto(x.st?.pasta || x.pasta);
+      : "parado";
     return `
     <li class="${i === ativa ? "ativa" : ""}" data-i="${i}">
       <span class="ic ${e}"></span>
       <b>${esc(nomeCurto(x))}</b>
-      <span class="tag ${e}">${NOME[x.tipo]}</span>
-      <small>${esc(desc)}</small>
+      <span class="tag ${e}">${esc(x.tipo === "claude" && x.conta && contas.length > 1 ? x.conta.nome : NOME[x.tipo])}</span>
+      <small>${esc(`${workspace(x)} · ${desc}`)}</small>
     </li>`;
   }).join("");
 
@@ -270,7 +290,8 @@ function desenhar() {
   if (a) {
     $("#ba-ic").className = `ic ${estadoDe(a)}`;
     $("#ba-titulo").textContent = nomeCompleto(a);
-    $("#ba-pasta").textContent = curto(a.st?.pasta || a.pasta);
+    $("#ba-pasta").textContent = workspace(a);
+    $("#ba-pasta").title = curto(a.st?.pasta || a.pasta);
     const br = $("#ba-branch");
     br.hidden = !a.st?.branch;
     br.textContent = a.st?.branch ? `⎇ ${a.st.branch}` : "";
@@ -286,24 +307,30 @@ function desenhar() {
     : op === "encerrado" ? "Processo encerrado"
     : tituloUtil(a) || "Aguardando instrução";
   $("#op-desc").textContent = !a ? "Nenhum agente aberto."
-    : op === "trabalhando" ? `${NOME[a.tipo]} trabalhando há ${duracao(Date.now() - a.trabalhandoDesde)}.`
-    : op === "pronto" ? `${NOME[a.tipo]} terminou e está te esperando.`
+    : op === "trabalhando" ? `${rotulo(a)} trabalhando em ${workspace(a)} há ${duracao(Date.now() - a.trabalhandoDesde)}.`
+    : op === "pronto" ? `${rotulo(a)} terminou em ${workspace(a)} e está te esperando.`
     : op === "encerrado" ? `Saiu com código ${a.codigo}.`
-    : `${NOME[a.tipo]} parado, esperando você.`;
+    : `${rotulo(a)} parado em ${workspace(a)}, esperando você.`;
   $("#op-trilho").className = op === "trabalhando" ? "correndo" : "";
 
   // detalhes
   if (a) {
     const trabalhou = a.tempoTrabalhando + (a.trabalhandoDesde ? Date.now() - a.trabalhandoDesde : 0);
     const aberta = Date.now() - a.aberta;
+    const tk = a.st?.tokens;
     const pares = [
+      ["Workspace", workspace(a)],
+      ...(a.tipo === "claude" && a.conta ? [["Conta", a.conta.nome]] : []),
+      ...(tk ? [
+        ["Modelo", modelo(tk.modelo)],
+        ["Contexto", numero(tk.contexto)],
+        ["Tokens de saída", numero(tk.saida)],
+        ["Tokens de entrada", numero(tk.entrada + tk.cache_escrita)],
+        ["Lidos do cache", numero(tk.cache_leitura)],
+      ] : [["Rodando", a.st?.rodando || "—"]]),
       ["Última atividade", a.st ? `há ${duracao(a.st.ms_saida)}` : "—"],
       ["Tempo trabalhando", `${duracao(trabalhou)} · ${aberta ? Math.round((trabalhou / aberta) * 100) : 0}%`],
-      ["Aberto há", duracao(aberta)],
-      ["Rodando", a.st?.rodando || "—"],
-      ["CPU", a.st ? `${Math.round(a.st.cpu)}%` : "—"],
-      ["Memória", a.st ? tamanho(a.st.memoria) : "—"],
-      ["Processos", a.st?.processos ?? "—"],
+      ["CPU · memória", a.st ? `${Math.round(a.st.cpu)}% · ${tamanho(a.st.memoria)}` : "—"],
     ];
     $("#sinal").innerHTML = pares.map(([k, v]) => `<dt>${k}</dt><dd>${esc(String(v))}</dd>`).join("");
   } else {
@@ -316,10 +343,53 @@ function desenhar() {
   document.title = a ? `easynow · ${nomeCurto(a)}` : "easynow";
 }
 
+function desenharLimites() {
+  const lista = sistema?.limites || [];
+  $("#limites").innerHTML = lista.length ? lista.map((l) => `
+    <div class="limite">
+      <div class="limite-topo"><b>${esc(l.nome)}</b><span>${l.tipo === "codex" ? "Codex" : "Claude"}</span></div>
+      ${l.erro ? `<small class="limite-erro">${esc(l.erro)}</small>` : [["Sessão", l.sessao], ["Semana", l.semana]]
+        .filter(([, j]) => j)
+        .map(([nome, j]) => `
+        <div class="lim-linha ${j.pct >= 85 ? "alto" : ""}">
+          <span>${nome}</span>
+          <div class="trilho"><i style="width:${Math.min(j.pct, 100)}%"></i></div>
+          <b>${Math.round(j.pct)}%</b>
+          <small title="zera ${esc(quando(j.zera, true))}">${esc(quando(j.zera))}</small>
+        </div>`).join("")}
+    </div>`).join("") : `<small class="limite-erro">carregando…</small>`;
+}
+
+// ---------- menu de nova aba ----------
+
+function opcoesNovo() {
+  return [
+    ...contas.map((c) => ({ tipo: "claude", conta: c, titulo: contas.length > 1 ? `Claude · ${c.nome}` : "Claude", sub: curto(c.dir) })),
+    { tipo: "codex", titulo: "Codex", sub: "OpenAI Codex" },
+    { tipo: "shell", titulo: "Shell", sub: "Terminal comum" },
+  ];
+}
+
+function abrirMenu() {
+  const menu = $("#menu-novo");
+  menu.innerHTML = opcoesNovo().map((o, i) =>
+    `<button data-opcao="${i}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
+  const r = ($("#btn-mais") || $("#btn-grade")).getBoundingClientRect();
+  menu.style.left = `${Math.min(r.left, window.innerWidth - 280)}px`;
+  menu.style.top = `${r.bottom + 8}px`;
+  menu.hidden = false;
+}
+
+function escolher(i) {
+  const o = opcoesNovo()[i];
+  $("#menu-novo").hidden = true;
+  if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
+}
+
 // ---------- eventos (log) ----------
 
 function evento(aba, txt, tipo = "") {
-  linhaLog(NOME[aba.tipo] + (abas.includes(aba) ? ` ${abas.indexOf(aba) + 1}` : ""), txt, tipo);
+  linhaLog(rotulo(aba) + (abas.includes(aba) ? ` ${abas.indexOf(aba) + 1}` : ""), txt, tipo);
 }
 
 function linhaLog(quem, txt, tipo = "") {
@@ -345,9 +415,8 @@ function atalho(ev) {
     return true;
   }
   if (!$("#menu-novo").hidden) {
-    const tipo = { c: "claude", x: "codex", s: "shell" }[k];
-    $("#menu-novo").hidden = true;
-    if (tipo) novaAba(tipo, abas[ativa]?.id ?? null);
+    if (/^[1-9]$/.test(k)) escolher(Number(k) - 1);
+    else $("#menu-novo").hidden = true;
     return true;
   }
 
@@ -359,7 +428,7 @@ function atalho(ev) {
   } else if (ev.ctrlKey && !ev.shiftKey && ev.key === "PageDown" && abas.length) {
     ativar((ativa + 1) % abas.length);
   } else if (csh && ev.code === "KeyT") {
-    $("#menu-novo").hidden = false;
+    abrirMenu();
   } else if (csh && ev.code === "KeyW") {
     pedirFechar(ativa);
   } else if (csh && ev.code === "KeyG") {
@@ -403,6 +472,10 @@ function fecharModal(sim) {
 // ---------- cliques ----------
 
 $("#abas").addEventListener("click", (ev) => {
+  if (ev.target.closest("#btn-mais")) {
+    ev.stopPropagation();
+    return $("#menu-novo").hidden ? abrirMenu() : ($("#menu-novo").hidden = true);
+  }
   const f = ev.target.closest("[data-fechar]");
   if (f) return pedirFechar(Number(f.dataset.fechar));
   const b = ev.target.closest("[data-i]");
@@ -418,18 +491,12 @@ for (const sel of ["#sessoes"]) {
     if (li) ativar(Number(li.dataset.i));
   });
 }
-$("#btn-novo").addEventListener("click", (ev) => {
-  ev.stopPropagation();
-  $("#menu-novo").hidden = !$("#menu-novo").hidden;
-});
 document.addEventListener("click", (ev) => {
+  const o = ev.target.closest("[data-opcao]");
   const t = ev.target.closest("[data-tipo]");
-  if (t) {
-    $("#menu-novo").hidden = true;
-    novaAba(t.dataset.tipo, abas[ativa]?.id ?? null);
-  } else if (!ev.target.closest(".menu")) {
-    $("#menu-novo").hidden = true;
-  }
+  if (o) escolher(Number(o.dataset.opcao));
+  else if (t) escolher(opcoesNovo().findIndex((x) => x.tipo === t.dataset.tipo));
+  else if (!ev.target.closest(".menu")) $("#menu-novo").hidden = true;
 });
 $("#btn-grade").addEventListener("click", alternarGrade);
 $("#modal-sim").addEventListener("click", () => fecharModal(true));
@@ -463,6 +530,28 @@ function tamanho(b) {
   if (b >= 1e3) return `${Math.round(b / 1e3)}K`;
   return `${b}B`;
 }
+// "claude-opus-5-5" -> "Opus 5.5"
+function modelo(m) {
+  if (!m) return "—";
+  if (!m.startsWith("claude-")) return m;
+  const t = m.slice(7).replace(/-(\d+)-(\d+)(-\d{8})?$/, " $1.$2").replace(/-(\d+)$/, " $1");
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+function numero(n) {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)}k`;
+  return String(n);
+}
+// quando um limite zera: "18:59" se for hoje, "sex 08:59" se for outro dia
+function quando(z, completo = false) {
+  if (z == null) return "—";
+  const d = typeof z === "number" ? new Date(z * 1000) : new Date(z);
+  if (isNaN(d)) return "—";
+  const h = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (completo) return d.toLocaleString("pt-BR", { weekday: "long", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) return h;
+  return `${d.toLocaleDateString("pt-BR", { weekday: "short" }).replace(".", "")} ${h}`;
+}
 function bytes(b64) {
   const bin = atob(b64);
   const u = new Uint8Array(bin.length);
@@ -480,6 +569,7 @@ function bytes(b64) {
 
   const ini = await invoke("inicio");
   home = ini.home;
+  contas = ini.contas || [];
   linhaLog("easynow", `iniciado em ${curto(ini.pasta)}`);
 
   for (const tipo of ini.abas) await novaAba(tipo);

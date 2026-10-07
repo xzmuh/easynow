@@ -123,7 +123,7 @@ h2 {
   scrollbar-width: none;
   min-width: 0;
 }
-#abas:empty { visibility: hidden; }
+#abas { flex: 0 1 auto; margin-right: auto; }
 
 .aba {
   display: flex;
@@ -209,10 +209,27 @@ h2 {
 .botao.grande { height: 44px; padding: 0 24px; background: var(--card-2); }
 .botao.grande:hover { background: var(--card-3); }
 
-.novo { position: relative; }
+.aba .ws {
+  font-size: 11.5px;
+  color: var(--apagado);
+  overflow: hidden; text-overflow: ellipsis;
+  max-width: 90px;
+}
+.aba-mais {
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--texto-2);
+  cursor: pointer;
+}
+.aba-mais svg { width: 17px; height: 17px; }
+.aba-mais:hover { background: var(--verde-fraco); color: var(--verde); }
+
 .menu {
-  position: absolute;
-  right: 0; top: 46px;
+  position: fixed;
   z-index: 20;
   width: 260px;
   padding: 6px;
@@ -260,7 +277,8 @@ h2 {
 .numeros span { color: var(--apagado); font-size: 12px; }
 #n-trabalhando.ativo { color: var(--verde); }
 
-.medidor { margin-bottom: 14px; }
+.medidor { margin-bottom: 12px; }
+.medidor:last-child { margin-bottom: 0; }
 .medidor-topo {
   display: flex; justify-content: space-between; align-items: baseline;
   margin-bottom: 7px;
@@ -269,6 +287,26 @@ h2 {
 }
 .medidor-topo b { font-weight: 500; color: var(--texto); font-variant-numeric: tabular-nums; }
 .medidor-topo.pequeno { margin: 0; font-size: 12px; }
+
+/* limites */
+#limites { display: flex; flex-direction: column; gap: 14px; }
+.limite-topo { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.limite-topo b { font-weight: 600; }
+.limite-topo span { font-size: 11.5px; color: var(--apagado); }
+.lim-linha {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 34px 58px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--texto-2);
+  margin-top: 4px;
+}
+.lim-linha .trilho { height: 5px; }
+.lim-linha b { font-weight: 500; color: var(--texto); text-align: right; font-variant-numeric: tabular-nums; }
+.lim-linha small { color: var(--apagado); text-align: right; white-space: nowrap; font-size: 11.5px; }
+.lim-linha.alto .trilho i { background: var(--vermelho); }
+.limite-erro { color: var(--apagado); font-size: 12px; }
 
 .trilho { height: 6px; background: var(--card-3); border-radius: 99px; overflow: hidden; }
 .trilho i {

@@ -43,7 +43,16 @@ fn programa(tipo: &str) -> String {
 }
 
 impl Aba {
-    pub fn abrir(app: AppHandle, id: u32, tipo: &str, pasta: PathBuf, linhas: u16, colunas: u16) -> Result<Aba> {
+    /// `conta`: pasta de configuração do Claude a usar (None = a padrão).
+    pub fn abrir(
+        app: AppHandle,
+        id: u32,
+        tipo: &str,
+        conta: Option<&str>,
+        pasta: PathBuf,
+        linhas: u16,
+        colunas: u16,
+    ) -> Result<Aba> {
         let par = native_pty_system().openpty(PtySize {
             rows: linhas.max(2),
             cols: colunas.max(2),
@@ -55,6 +64,15 @@ impl Aba {
         cmd.cwd(&pasta);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        // Se o easynow foi aberto de dentro de um Claude, não passa as variáveis dele adiante.
+        for (k, _) in std::env::vars() {
+            if k == "CLAUDECODE" || k == "CLAUDE_CONFIG_DIR" || k == "CLAUDE_PID" || k.starts_with("CLAUDE_CODE_") {
+                cmd.env_remove(k);
+            }
+        }
+        if let Some(dir) = conta {
+            cmd.env("CLAUDE_CONFIG_DIR", dir);
+        }
         let filho = par.slave.spawn_command(cmd)?;
         drop(par.slave);
 

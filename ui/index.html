@@ -24,17 +24,6 @@
       <button id="btn-grade" class="botao icone" title="Ver todas (Ctrl+Shift+G)">
         <svg viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/></svg>
       </button>
-      <div class="novo">
-        <button id="btn-novo" class="botao verde" title="Ctrl+Shift+T">
-          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-          Nova aba
-        </button>
-        <div id="menu-novo" class="menu" hidden>
-          <button data-tipo="claude"><b>Claude</b><span>Claude Code</span><kbd>C</kbd></button>
-          <button data-tipo="codex"><b>Codex</b><span>OpenAI Codex</span><kbd>X</kbd></button>
-          <button data-tipo="shell"><b>Shell</b><span>Terminal comum</span><kbd>S</kbd></button>
-        </div>
-      </div>
     </div>
   </header>
 
@@ -53,7 +42,11 @@
         <div class="medidor-topo"><span>Memória</span><b id="ram-txt">—</b></div>
         <div class="trilho"><i id="ram-barra"></i></div>
       </div>
-      <div class="medidor-topo pequeno"><span>Usada pelos agentes</span><b id="ram-agentes">—</b></div>
+    </section>
+
+    <section class="card">
+      <h2>Limites <span class="contador">atualiza a cada 2 min</span></h2>
+      <div id="limites"></div>
     </section>
 
     <section class="card cresce">
@@ -112,6 +105,8 @@
   </footer>
 
 </div>
+
+<div id="menu-novo" class="menu" hidden></div>
 
 <div id="modal" hidden>
   <div class="card">
