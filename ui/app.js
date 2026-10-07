@@ -416,54 +416,41 @@ function terminarOrb() {
   }, 1200);
 }
 
+// Matriz de pontos em forma de esfera: cada ponto acende e cresce com ondas que
+// saem do centro; quanto mais alta a voz, mais fortes as ondas.
 function desenharOrb(t) {
   const c = $("#orb canvas");
   const g = c.getContext("2d");
   const W = c.width, m = W / 2;
-  voz.nivel += (voz.alvo - voz.nivel) * 0.22;
+  voz.nivel += (voz.alvo - voz.nivel) * 0.2;
   const n = voz.nivel;
   g.clearRect(0, 0, W, W);
 
-  // brilho em volta
-  const brilho = g.createRadialGradient(m, m, W * 0.12, m, m, W * 0.5);
-  brilho.addColorStop(0, `rgba(74, 222, 128, ${0.16 + n * 0.34})`);
-  brilho.addColorStop(1, "rgba(74, 222, 128, 0)");
-  g.fillStyle = brilho;
-  g.fillRect(0, 0, W, W);
-
-  // anel de barrinhas que cresce com a voz
-  const N = 72, r0 = W * 0.235;
-  g.lineCap = "round";
-  g.lineWidth = W / 110;
-  for (let i = 0; i < N; i++) {
-    const ang = (i / N) * Math.PI * 2;
-    const onda = 0.5 + 0.5 * Math.sin(ang * 5 + t / 230) * Math.sin(ang * 3 - t / 370);
-    const len = W * 0.012 + n * W * 0.15 * onda + (voz.ouvindo ? W * 0.006 * (1 + Math.sin(t / 280 + i)) : 0);
-    g.strokeStyle = `rgba(134, 239, 172, ${0.3 + 0.7 * onda * Math.max(n, 0.18)})`;
-    g.beginPath();
-    g.moveTo(m + Math.cos(ang) * r0, m + Math.sin(ang) * r0);
-    g.lineTo(m + Math.cos(ang) * (r0 + len), m + Math.sin(ang) * (r0 + len));
-    g.stroke();
+  const N = 25;                 // pontos por linha
+  const passo = W / (N + 1);
+  const R = (N / 2) * passo;    // raio da esfera
+  for (let y = 0; y < N; y++) {
+    for (let x = 0; x < N; x++) {
+      const px = (x + 1) * passo, py = (y + 1) * passo;
+      const dx = px - m, dy = py - m;
+      const d = Math.hypot(dx, dy) / R;
+      if (d > 1) continue;
+      // volume da esfera (mais claro no centro) + ondas que saem do centro
+      const esfera = Math.sqrt(1 - d * d);
+      const onda = 0.5 + 0.5 * Math.sin(d * 11 - t / 110);
+      const textura = 0.5 + 0.5 * Math.sin(x * 0.9 + t / 260) * Math.cos(y * 0.8 - t / 340);
+      const calmo = voz.ouvindo ? 0 : 0.12 * (0.5 + 0.5 * Math.sin(t / 220 - d * 4));
+      let v = esfera * 0.22 + calmo + n * (0.7 * onda * (1 - d * 0.35) + 0.35 * textura);
+      v = Math.min(1, v);
+      const raio = passo * (0.1 + 0.32 * v);
+      // pontos fracos verdes, os mais fortes quase brancos
+      const l = Math.round(55 + 30 * v);
+      g.fillStyle = `hsla(142, 76%, ${l}%, ${0.18 + 0.82 * v})`;
+      g.beginPath();
+      g.arc(px, py, raio, 0, Math.PI * 2);
+      g.fill();
+    }
   }
-
-  // núcleo
-  const rc = W * 0.15 * (1 + n * 0.22 + (voz.ouvindo ? 0 : 0.04 * Math.sin(t / 160)));
-  const nucleo = g.createRadialGradient(m - rc * 0.35, m - rc * 0.35, rc * 0.1, m, m, rc);
-  nucleo.addColorStop(0, "#dcfce7");
-  nucleo.addColorStop(0.45, "#4ade80");
-  nucleo.addColorStop(1, "#15803d");
-  g.fillStyle = nucleo;
-  g.beginPath();
-  g.arc(m, m, rc, 0, Math.PI * 2);
-  g.fill();
-
-  // arco fino girando por fora
-  g.strokeStyle = "rgba(74, 222, 128, 0.45)";
-  g.lineWidth = W / 220;
-  g.beginPath();
-  g.arc(m, m, W * 0.43, t / 900, t / 900 + Math.PI * 1.25);
-  g.stroke();
-
   voz.quadro = requestAnimationFrame(desenharOrb);
 }
 
