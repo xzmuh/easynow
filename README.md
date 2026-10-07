@@ -1,4 +1,4 @@
-# central
+# easynow
 
 Um terminal só para os agentes. Em vez de 4 janelas abertas (claude, codex, shell...),
 cada uma vira uma aba aqui dentro. O meio mostra o terminal da aba ativa e as laterais
@@ -6,7 +6,7 @@ mostram o que importa: quem está trabalhando, quem terminou e está te esperand
 branch, CPU/RAM de cada agente.
 
 ```
- CENTRAL  1 ⠹ arrumando login   2 ✓ testes   3   deploy   4   shell
+ EASYNOW  1 ⠹ arrumando login   2 ✓ testes   3   deploy   4   shell
 ┌ SESSÕES ──────────┐┌ 1 arrumando login ────────────────┐┌ AGENTE ATIVO ─────┐
 │▌1 claude trabalh… ││                                   ││ pasta, branch,    │
 │ 2 codex  pronto ✓ ││     terminal da aba ativa         ││ tempo trabalhando,│
@@ -16,21 +16,25 @@ branch, CPU/RAM de cada agente.
 └───────────────────┘└───────────────────────────────────┘└───────────────────┘
 ```
 
-## Rodar
+## Usar
+
+Abra o terminal na pasta do projeto e digite:
 
 ```sh
-cargo run --release -- claude claude codex shell
+easynow
 ```
 
-Os argumentos são as abas que abrem no começo (`claude`, `codex` ou `shell`). Sem argumento abre um shell.
+Abre claude, codex e shell. Para escolher as abas: `easynow claude claude codex shell`.
 Todas abrem na pasta onde você rodou o comando.
 
-Para usar de qualquer lugar:
+## Instalar
 
 ```sh
 cargo build --release
-ln -s "$PWD/target/release/central" ~/.local/bin/central   # ~/.local/bin precisa estar no PATH
+ln -s "$PWD/target/release/easynow" ~/.local/bin/easynow   # ~/.local/bin precisa estar no PATH
 ```
+
+Depois de mudar o código, é só rodar `cargo build --release` de novo.
 
 ## Atalhos
 

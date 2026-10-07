@@ -168,7 +168,7 @@ fn estado_texto(aba: &Aba) -> (String, Color) {
 fn barra(f: &mut Frame, app: &mut App, r: Rect) {
     let mut x = r.x;
     let mut spans = vec![Span::styled(
-        " CENTRAL ",
+        " EASYNOW ",
         Style::new().fg(LARANJA).add_modifier(Modifier::BOLD),
     )];
     x += 9;
@@ -472,7 +472,7 @@ fn rodape(f: &mut Frame, app: &App, r: Rect) {
             ])
         }
         Modo::Sair => Line::from(vec![
-            Span::styled(" Sair do central? Todas as abas serão encerradas.  ", normal),
+            Span::styled(" Sair do easynow? Todas as abas serão encerradas.  ", normal),
             Span::styled("s", destaque),
             Span::styled(" sim   ", normal),
             Span::styled("n", destaque),

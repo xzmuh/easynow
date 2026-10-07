@@ -234,12 +234,12 @@ impl App {
 }
 
 fn main() -> Result<()> {
-    // central claude codex claude shell → abre essas abas
+    // easynow claude codex claude shell → abre essas abas (sem nada: claude, codex e shell)
     let mut tipos = vec![];
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "-h" | "--help" => {
-                println!("uso: central [claude|codex|shell ...]\n\nex.: central claude claude codex shell");
+                println!("uso: easynow [claude|codex|shell ...]\n\nsem nada abre claude, codex e shell.\nex.: easynow claude claude codex shell");
                 return Ok(());
             }
             a => match Tipo::de_texto(a) {
@@ -249,7 +249,7 @@ fn main() -> Result<()> {
         }
     }
     if tipos.is_empty() {
-        tipos.push(Tipo::Shell);
+        tipos = vec![Tipo::Claude, Tipo::Codex, Tipo::Shell];
     }
 
     let mut terminal = ratatui::init();
@@ -317,8 +317,8 @@ fn rodar(terminal: &mut ratatui::DefaultTerminal, tipos: Vec<Tipo>) -> Result<()
             ultimo_desenho = Instant::now();
 
             let titulo = match app.abas.get(app.ativa) {
-                Some(a) => format!("central · {}", a.nome_curto()),
-                None => "central".into(),
+                Some(a) => format!("easynow · {}", a.nome_curto()),
+                None => "easynow".into(),
             };
             if titulo != ultimo_titulo {
                 let _ = execute!(stdout(), SetTitle(&titulo));
