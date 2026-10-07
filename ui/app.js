@@ -317,11 +317,17 @@ function desenhar() {
   document.title = a ? `easynow · ${nomeCurto(a)}` : "easynow";
 }
 
+// Só os limites da conta da aba que você está vendo (Shell não tem).
 function desenharLimites() {
-  const lista = sistema?.limites || [];
+  const a = abas[ativa];
+  const lista = (sistema?.limites || []).filter((l) =>
+    a?.tipo === "codex" ? l.tipo === "codex"
+    : a?.tipo === "claude" ? l.tipo === "claude" && l.nome === a.conta?.nome
+    : false);
+  $("#card-limites").hidden = !a || a.tipo === "shell";
+  $("#limites-conta").textContent = a?.tipo === "claude" ? a.conta?.nome || "" : a?.tipo === "codex" ? "Codex" : "";
   $("#limites").innerHTML = lista.length ? lista.map((l) => `
     <div class="limite">
-      <div class="limite-topo"><b>${esc(l.nome)}</b><span>${l.tipo === "codex" ? "Codex" : "Claude"}</span></div>
       ${l.erro ? `<small class="limite-erro">${esc(l.erro)}</small>` : [["Sessão", l.sessao], ["Semana", l.semana]]
         .filter(([, j]) => j)
         .map(([nome, j]) => `
