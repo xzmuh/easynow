@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>easynow</title>
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="topo">
+    <div class="marca">
+      <svg viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="1" y="1" width="30" height="30" rx="7" class="marca-fundo"/>
+        <path d="M9 10l6 6-6 6" class="marca-seta"/>
+        <path d="M17 22h7" class="marca-linha"/>
+      </svg>
+      <div>
+        <b>EASYNOW</b>
+        <span>terminal de agentes</span>
+      </div>
+    </div>
+
+    <nav id="abas"></nav>
+
+    <div class="topo-acoes">
+      <div class="novo">
+        <button id="btn-novo" class="botao" title="Ctrl+Shift+T">＋ nova aba</button>
+        <div id="menu-novo" class="menu" hidden>
+          <button data-tipo="claude"><b>claude</b><span>Claude Code</span><kbd>C</kbd></button>
+          <button data-tipo="codex"><b>codex</b><span>OpenAI Codex</span><kbd>X</kbd></button>
+          <button data-tipo="shell"><b>shell</b><span>terminal comum</span><kbd>S</kbd></button>
+        </div>
+      </div>
+      <button id="btn-grade" class="botao" title="Ctrl+Shift+G">▦ grade</button>
+      <div class="estado-geral">
+        <span class="rotulo">ESTADO</span>
+        <b id="estado-geral">OCIOSO</b>
+      </div>
+    </div>
+  </header>
+
+  <aside id="esquerda" class="coluna">
+    <section>
+      <h2>TELEMETRIA <span class="vivo">AO VIVO</span></h2>
+      <div class="anel-linha">
+        <div class="anel">
+          <svg viewBox="0 0 100 100">
+            <circle cx="50" cy="50" r="42" class="anel-fundo"/>
+            <circle cx="50" cy="50" r="42" class="anel-valor" id="anel-cpu"/>
+          </svg>
+          <div class="anel-texto"><b id="cpu-pct">0%</b><span>CPU</span></div>
+        </div>
+        <div class="anel-lado">
+          <span class="rotulo">AGENTES TRABALHANDO</span>
+          <b id="n-trabalhando">0 / 0</b>
+          <span class="rotulo">TE ESPERANDO</span>
+          <b id="n-esperando">0</b>
+        </div>
+      </div>
+      <div class="medidor">
+        <div class="medidor-topo"><span class="rotulo">CPU DA MÁQUINA</span><b id="cpu-txt">0%</b></div>
+        <div class="trilho"><i id="cpu-barra"></i></div>
+      </div>
+      <div class="medidor">
+        <div class="medidor-topo"><span class="rotulo">MEMÓRIA</span><b id="ram-txt">—</b></div>
+        <div class="trilho"><i id="ram-barra"></i></div>
+      </div>
+      <div class="medidor">
+        <div class="medidor-topo"><span class="rotulo">MEMÓRIA DOS AGENTES</span><b id="ram-agentes">—</b></div>
+      </div>
+    </section>
+
+    <section class="cresce">
+      <h2>SESSÕES <span id="n-sessoes" class="contador">0</span></h2>
+      <ul id="sessoes" class="lista"></ul>
+    </section>
+  </aside>
+
+  <main id="centro">
+    <div id="barra-agente">
+      <div class="campo"><span class="rotulo">AGENTE</span><b id="ba-tipo">—</b></div>
+      <div class="campo largo"><span class="rotulo">PASTA</span><b id="ba-pasta">—</b></div>
+      <div class="campo"><span class="rotulo">BRANCH</span><b id="ba-branch">—</b></div>
+      <div class="campo"><span class="rotulo">RODANDO</span><b id="ba-rodando">—</b></div>
+      <div class="campo direita"><span class="rotulo">ABERTA HÁ</span><b id="ba-tempo">—</b></div>
+    </div>
+    <div id="terminais"></div>
+    <div id="vazio" hidden>
+      <b>Nenhum agente aberto</b>
+      <span>Escolha o que abrir:</span>
+      <div>
+        <button class="botao grande" data-tipo="claude">claude</button>
+        <button class="botao grande" data-tipo="codex">codex</button>
+        <button class="botao grande" data-tipo="shell">shell</button>
+      </div>
+    </div>
+  </main>
+
+  <aside id="direita" class="coluna">
+    <section>
+      <h2>OPERAÇÃO ATIVA <span id="op-n" class="contador"></span></h2>
+      <div id="op" class="cartao">
+        <div class="cartao-topo"><span class="rotulo">PROCESSO ATUAL</span><span id="op-tag" class="tag">—</span></div>
+        <b id="op-titulo">Aguardando instrução</b>
+        <p id="op-desc">Nenhum agente aberto.</p>
+        <div class="trilho fino"><i id="op-trilho"></i></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>SINAL</h2>
+      <dl id="sinal" class="pares"></dl>
+    </section>
+
+    <section class="cresce">
+      <h2>ORQUESTRAÇÃO</h2>
+      <ul id="orquestra" class="lista"></ul>
+    </section>
+
+    <section class="rodape-direita">
+      <div><span class="rotulo">SESSÃO</span><b id="relogio">00:00:00</b></div>
+      <div><span class="rotulo">RODADAS</span><b id="rodadas-total">0</b></div>
+      <div><span class="rotulo">VOZ</span><b class="desligado">OFF</b></div>
+    </section>
+  </aside>
+
+  <footer id="log">
+    <h2>SAÍDA DO SISTEMA / EVENTOS</h2>
+    <div id="linhas-log"></div>
+  </footer>
+
+</div>
+
+<div id="modal" hidden>
+  <div class="cartao">
+    <b id="modal-titulo"></b>
+    <p id="modal-texto"></p>
+    <div class="modal-botoes">
+      <button class="botao" id="modal-nao">cancelar <kbd>N</kbd></button>
+      <button class="botao forte" id="modal-sim">fechar <kbd>S</kbd></button>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,346 +1,210 @@
-mod aba;
-mod teclas;
-mod tela;
+// easynow: uma janela com abas para claude, codex e shell, e a telemetria de cada agente.
+// O Rust cuida dos programas (PTY) e das medições; a interface fica em ui/.
+
+mod pty;
 mod telemetria;
 
-use std::collections::VecDeque;
-use std::io::stdout;
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use anyhow::Result;
-use crossterm::event::{
-    self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
-    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags, MouseButton,
-    MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
-};
-use crossterm::execute;
-use crossterm::terminal::SetTitle;
-use ratatui::layout::{Position, Rect};
+use serde::Serialize;
+use tauri::{AppHandle, State};
 
-use aba::{Aba, Tipo};
+use pty::Aba;
 use telemetria::Telemetria;
 
-pub enum Modo {
-    Normal,
-    NovaAba,
-    Fechar,
-    Sair,
-}
-
-pub struct App {
-    pub abas: Vec<Aba>,
-    pub ativa: usize,
-    pub grade: bool,
-    pub paineis: bool,
-    pub modo: Modo,
-    pub eventos: VecDeque<(Instant, String)>,
-    pub telemetria: Arc<Mutex<Telemetria>>,
-    pub areas_abas: Vec<(Rect, usize)>,
-    pub areas_quadros: Vec<(Rect, usize)>,
-    pub iniciou: Instant,
+struct Estado {
+    abas: Mutex<HashMap<u32, Aba>>,
     pids: Arc<Mutex<Vec<u32>>>,
-    sujo: Arc<AtomicBool>,
-    sair: bool,
+    telemetria: Arc<Mutex<Telemetria>>,
+    iniciais: Vec<String>,
+    pasta: PathBuf,
 }
 
-impl App {
-    fn abrir(&mut self, tipo: Tipo, pasta: PathBuf) {
-        let (l, c) = self.abas.get(self.ativa).map(|a| a.tamanho).unwrap_or((24, 80));
-        match Aba::abrir(tipo, pasta, l, c, self.sujo.clone()) {
-            Ok(aba) => {
-                self.abas.push(aba);
-                self.ativar(self.abas.len() - 1);
-                self.evento(self.abas.len() - 1, "aberta".into());
-            }
-            Err(e) => self.eventos.push_front((Instant::now(), format!("erro ao abrir {}: {e}", tipo.nome()))),
-        }
-        self.atualizar_pids();
-    }
-
-    /// Pasta onde a aba ativa está agora (para a nova aba abrir no mesmo lugar).
-    fn pasta_atual(&self) -> PathBuf {
-        self.abas
-            .get(self.ativa)
-            .and_then(|a| a.pid)
-            .and_then(|p| std::fs::read_link(format!("/proc/{p}/cwd")).ok())
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("/"))
-    }
-
-    fn ativar(&mut self, i: usize) {
-        if i < self.abas.len() {
-            self.ativa = i;
-            self.abas[i].aviso = false;
-        }
-    }
-
-    fn fechar(&mut self, i: usize) {
-        if i >= self.abas.len() {
-            return;
-        }
-        let nome = self.abas[i].tipo.nome();
-        self.abas.remove(i);
-        self.eventos.push_front((Instant::now(), format!("{} {nome}: fechada", i + 1)));
-        if self.ativa >= self.abas.len() {
-            self.ativa = self.abas.len().saturating_sub(1);
-        }
-        self.atualizar_pids();
-    }
-
-    fn reiniciar(&mut self, i: usize) {
-        let Some(aba) = self.abas.get(i) else { return };
-        let (tipo, pasta, (l, c)) = (aba.tipo, aba.pasta_inicial.clone(), aba.tamanho);
-        if let Ok(nova) = Aba::abrir(tipo, pasta, l, c, self.sujo.clone()) {
-            self.abas[i] = nova;
-            self.evento(i, "reiniciada".into());
-        }
-        self.atualizar_pids();
-    }
-
-    fn atualizar_pids(&self) {
-        *self.pids.lock().unwrap() = self.abas.iter().filter_map(|a| a.pid).collect();
-    }
-
-    fn evento(&mut self, i: usize, txt: String) {
-        let nome = self.abas[i].tipo.nome();
-        self.eventos.push_front((Instant::now(), format!("{} {nome}: {txt}", i + 1)));
-        self.eventos.truncate(50);
-    }
-
-    fn atualizar_abas(&mut self) {
-        for i in 0..self.abas.len() {
-            let ativa = i == self.ativa;
-            if let Some(txt) = self.abas[i].atualizar(ativa) {
-                self.evento(i, txt);
-            }
-        }
-    }
-
-    fn tecla(&mut self, k: KeyEvent) {
-        let sim = matches!(k.code, KeyCode::Char('s' | 'S' | 'y' | 'Y') | KeyCode::Enter);
-        match self.modo {
-            Modo::NovaAba => {
-                self.modo = Modo::Normal;
-                let tipo = match k.code {
-                    KeyCode::Char(c) => Tipo::de_texto(&c.to_ascii_lowercase().to_string()),
-                    _ => None,
-                };
-                if let Some(t) = tipo {
-                    let pasta = self.pasta_atual();
-                    self.abrir(t, pasta);
-                }
-                return;
-            }
-            Modo::Fechar => {
-                self.modo = Modo::Normal;
-                if sim {
-                    self.fechar(self.ativa);
-                }
-                return;
-            }
-            Modo::Sair => {
-                self.modo = Modo::Normal;
-                self.sair = sim;
-                return;
-            }
-            Modo::Normal => {}
-        }
-
-        let alt = k.modifiers.contains(KeyModifiers::ALT) && !k.modifiers.contains(KeyModifiers::CONTROL);
-        let ctrl = k.modifiers.contains(KeyModifiers::CONTROL);
-        let shift = k.modifiers.contains(KeyModifiers::SHIFT);
-        let n = self.abas.len();
-
-        match k.code {
-            KeyCode::Char(c @ '1'..='9') if alt => self.ativar(c as usize - '1' as usize),
-            KeyCode::Char('t') if alt => self.modo = Modo::NovaAba,
-            KeyCode::Char('w') if alt && n > 0 => {
-                if self.abas[self.ativa].codigo_saida.is_some() {
-                    self.fechar(self.ativa);
-                } else {
-                    self.modo = Modo::Fechar;
-                }
-            }
-            KeyCode::Char('r') if alt && n > 0 && self.abas[self.ativa].codigo_saida.is_some() => {
-                self.reiniciar(self.ativa)
-            }
-            KeyCode::Char('g') if alt => self.grade = !self.grade,
-            KeyCode::Char('b') if alt => self.paineis = !self.paineis,
-            KeyCode::Char('q') if alt => {
-                if n == 0 {
-                    self.sair = true;
-                } else {
-                    self.modo = Modo::Sair;
-                }
-            }
-            KeyCode::PageUp if ctrl && n > 0 => self.ativar((self.ativa + n - 1) % n),
-            KeyCode::PageDown if ctrl && n > 0 => self.ativar((self.ativa + 1) % n),
-            KeyCode::PageUp if shift && n > 0 => {
-                let meia = (self.abas[self.ativa].tamanho.0 / 2).max(1) as isize;
-                self.abas[self.ativa].rolar(meia);
-            }
-            KeyCode::PageDown if shift && n > 0 => {
-                let meia = (self.abas[self.ativa].tamanho.0 / 2).max(1) as isize;
-                self.abas[self.ativa].rolar(-meia);
-            }
-            _ if n > 0 => {
-                let aba = &mut self.abas[self.ativa];
-                let app_cursor = aba.dados.lock().unwrap().parser.screen().application_cursor();
-                aba.escrever(&teclas::para_bytes(&k, app_cursor));
-            }
-            _ => {}
-        }
-    }
-
-    fn colar(&mut self, texto: String) {
-        let Some(aba) = self.abas.get_mut(self.ativa) else { return };
-        let colchetes = aba.dados.lock().unwrap().parser.screen().bracketed_paste();
-        let texto = texto.replace("\r\n", "\r").replace('\n', "\r");
-        let bytes = if colchetes {
-            format!("\x1b[200~{texto}\x1b[201~")
-        } else {
-            texto
-        };
-        aba.escrever(bytes.as_bytes());
-    }
-
-    fn mouse(&mut self, m: MouseEvent) {
-        let p = Position::new(m.column, m.row);
-        let quadro = self.areas_quadros.iter().find(|(r, _)| r.contains(p)).map(|(_, i)| *i);
-        match m.kind {
-            MouseEventKind::ScrollUp => {
-                if let Some(i) = quadro {
-                    self.abas[i].rolar(3);
-                }
-            }
-            MouseEventKind::ScrollDown => {
-                if let Some(i) = quadro {
-                    self.abas[i].rolar(-3);
-                }
-            }
-            MouseEventKind::Down(MouseButton::Left) => {
-                if let Some((_, i)) = self.areas_abas.iter().find(|(r, _)| r.contains(p)) {
-                    self.ativar(*i);
-                } else if let Some(i) = quadro {
-                    self.ativar(i);
-                }
-            }
-            _ => {}
-        }
+impl Estado {
+    fn atualizar_pids(&self, abas: &HashMap<u32, Aba>) {
+        *self.pids.lock().unwrap() = abas.values().filter_map(|a| a.pid).collect();
     }
 }
 
-fn main() -> Result<()> {
-    // easynow claude codex claude shell → abre essas abas (sem nada: claude, codex e shell)
-    let mut tipos = vec![];
-    for arg in std::env::args().skip(1) {
-        match arg.as_str() {
-            "-h" | "--help" => {
-                println!("uso: easynow [claude|codex|shell ...]\n\nsem nada abre claude, codex e shell.\nex.: easynow claude claude codex shell");
-                return Ok(());
-            }
-            a => match Tipo::de_texto(a) {
-                Some(t) => tipos.push(t),
-                None => anyhow::bail!("não conheço \"{a}\" (use claude, codex ou shell)"),
-            },
-        }
-    }
-    if tipos.is_empty() {
-        tipos = vec![Tipo::Claude, Tipo::Codex, Tipo::Shell];
-    }
-
-    let mut terminal = ratatui::init();
-    let teclado_novo = crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false);
-    execute!(stdout(), EnableMouseCapture, EnableBracketedPaste)?;
-    if teclado_novo {
-        // Faz o terminal diferenciar Shift+Enter de Enter, Esc de Alt, etc.
-        execute!(
-            stdout(),
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        )?;
-    }
-
-    let resultado = rodar(&mut terminal, tipos);
-
-    if teclado_novo {
-        let _ = execute!(stdout(), PopKeyboardEnhancementFlags);
-    }
-    let _ = execute!(stdout(), DisableBracketedPaste, DisableMouseCapture, SetTitle(""));
-    ratatui::restore();
-    resultado
+#[derive(Serialize)]
+struct Inicio {
+    abas: Vec<String>,
+    pasta: String,
+    home: String,
 }
 
-fn rodar(terminal: &mut ratatui::DefaultTerminal, tipos: Vec<Tipo>) -> Result<()> {
+#[tauri::command]
+fn inicio(estado: State<Estado>) -> Inicio {
+    Inicio {
+        abas: estado.iniciais.clone(),
+        pasta: estado.pasta.to_string_lossy().into(),
+        home: std::env::var("HOME").unwrap_or_default(),
+    }
+}
+
+/// Abre um programa novo. `pasta_de` = id da aba cuja pasta atual a nova aba deve usar.
+#[tauri::command]
+fn abrir(
+    app: AppHandle,
+    estado: State<Estado>,
+    id: u32,
+    tipo: String,
+    pasta_de: Option<u32>,
+    linhas: u16,
+    colunas: u16,
+) -> Result<String, String> {
+    let mut abas = estado.abas.lock().unwrap();
+    let pasta = pasta_de
+        .and_then(|i| abas.get(&i))
+        .and_then(|a| a.pid)
+        .and_then(|p| std::fs::read_link(format!("/proc/{p}/cwd")).ok())
+        .unwrap_or_else(|| estado.pasta.clone());
+    let aba = Aba::abrir(app, id, &tipo, pasta.clone(), linhas, colunas).map_err(|e| e.to_string())?;
+    abas.insert(id, aba);
+    estado.atualizar_pids(&abas);
+    Ok(pasta.to_string_lossy().into())
+}
+
+#[tauri::command]
+fn escrever(estado: State<Estado>, id: u32, dados: String) {
+    if let Some(a) = estado.abas.lock().unwrap().get_mut(&id) {
+        a.escrever(dados.as_bytes());
+    }
+}
+
+#[tauri::command]
+fn redimensionar(estado: State<Estado>, id: u32, linhas: u16, colunas: u16) {
+    if let Some(a) = estado.abas.lock().unwrap().get_mut(&id) {
+        a.redimensionar(linhas, colunas);
+    }
+}
+
+#[tauri::command]
+fn fechar(estado: State<Estado>, id: u32) {
+    let mut abas = estado.abas.lock().unwrap();
+    abas.remove(&id);
+    estado.atualizar_pids(&abas);
+}
+
+#[derive(Serialize)]
+struct StatusAba {
+    id: u32,
+    ms_saida: u64,
+    ms_entrada: u64,
+    bytes: u64,
+    codigo_saida: Option<u32>,
+    pasta: Option<String>,
+    branch: Option<String>,
+    rodando: String,
+    cpu: f32,
+    memoria: u64,
+    processos: usize,
+}
+
+#[derive(Serialize)]
+struct Status {
+    cpu: f32,
+    memoria_usada: u64,
+    memoria_total: u64,
+    abas: Vec<StatusAba>,
+}
+
+#[tauri::command]
+fn status(estado: State<Estado>) -> Status {
+    let t = estado.telemetria.lock().unwrap().clone();
+    let agora = Instant::now();
+    let mut abas = estado.abas.lock().unwrap();
+    let lista = abas
+        .iter_mut()
+        .map(|(id, a)| {
+            let codigo_saida = a.verificar_saida();
+            let (ultima_saida, bytes) = {
+                let at = a.atividade.lock().unwrap();
+                (at.ultima_saida, at.bytes)
+            };
+            let uso = a.pid.and_then(|p| t.por_pid.get(&p).cloned()).unwrap_or_default();
+            StatusAba {
+                id: *id,
+                ms_saida: agora.duration_since(ultima_saida).as_millis() as u64,
+                ms_entrada: agora.duration_since(a.ultima_entrada).as_millis() as u64,
+                bytes,
+                codigo_saida,
+                pasta: uso.pasta.map(|p| p.to_string_lossy().into()),
+                branch: uso.branch,
+                rodando: uso.rodando,
+                cpu: uso.cpu,
+                memoria: uso.memoria,
+                processos: uso.processos,
+            }
+        })
+        .collect();
+    Status {
+        cpu: t.cpu,
+        memoria_usada: t.memoria_usada,
+        memoria_total: t.memoria_total,
+        abas: lista,
+    }
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        println!("uso: easynow [claude|codex|shell ...]\n\nsem nada abre claude, codex e shell.\nex.: easynow claude claude codex shell");
+        return;
+    }
+    let mut iniciais = vec![];
+    for a in args.iter().filter(|a| *a != "--aqui") {
+        match a.as_str() {
+            "claude" | "codex" | "shell" => iniciais.push(a.clone()),
+            outro => {
+                eprintln!("não conheço \"{outro}\" (use claude, codex ou shell)");
+                std::process::exit(1);
+            }
+        }
+    }
+    if iniciais.is_empty() {
+        iniciais = vec!["claude".into(), "codex".into(), "shell".into()];
+    }
+
+    // Solta o terminal: a janela continua aberta mesmo se você fechar o terminal de onde rodou.
+    if !args.iter().any(|a| a == "--aqui") {
+        if let Ok(exe) = std::env::current_exe() {
+            let ok = std::process::Command::new("setsid")
+                .arg(exe)
+                .args(&args)
+                .arg("--aqui")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .is_ok();
+            if ok {
+                return;
+            }
+        }
+    }
+
+    // Evita janela em branco no Wayland com placa NVIDIA.
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // seguro: ainda não existe nenhuma outra thread neste ponto
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+
     let pids = Arc::new(Mutex::new(vec![]));
-    let mut app = App {
-        abas: vec![],
-        ativa: 0,
-        grade: false,
-        paineis: true,
-        modo: Modo::Normal,
-        eventos: VecDeque::new(),
+    let estado = Estado {
+        abas: Mutex::new(HashMap::new()),
         telemetria: telemetria::iniciar(pids.clone()),
-        areas_abas: vec![],
-        areas_quadros: vec![],
-        iniciou: Instant::now(),
         pids,
-        sujo: Arc::new(AtomicBool::new(true)),
-        sair: false,
+        iniciais,
+        pasta: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
     };
 
-    // Descobre o tamanho do centro antes de abrir, para os programas já nascerem no tamanho certo.
-    let area = terminal.size()?;
-    let d = tela::dispor(Rect::new(0, 0, area.width, area.height), true);
-    let dentro = tela::interno(d.centro);
-    let pasta = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    for t in tipos {
-        if let Ok(aba) = Aba::abrir(t, pasta.clone(), dentro.height, dentro.width, app.sujo.clone()) {
-            app.abas.push(aba);
-        } else {
-            app.eventos.push_front((Instant::now(), format!("erro ao abrir {}", t.nome())));
-        }
-    }
-    app.atualizar_pids();
-
-    let mut ultimo_desenho = Instant::now() - Duration::from_secs(1);
-    let mut ultimo_titulo = String::new();
-    while !app.sair {
-        app.atualizar_abas();
-
-        let precisa = app.sujo.swap(false, Ordering::Relaxed)
-            || ultimo_desenho.elapsed() > Duration::from_millis(200);
-        if precisa {
-            terminal.draw(|f| tela::desenhar(f, &mut app))?;
-            ultimo_desenho = Instant::now();
-
-            let titulo = match app.abas.get(app.ativa) {
-                Some(a) => format!("easynow · {}", a.nome_curto()),
-                None => "easynow".into(),
-            };
-            if titulo != ultimo_titulo {
-                let _ = execute!(stdout(), SetTitle(&titulo));
-                ultimo_titulo = titulo;
-            }
-        }
-
-        if event::poll(Duration::from_millis(16))? {
-            // pega tudo que chegou de uma vez (colar texto gera muitos eventos)
-            loop {
-                match event::read()? {
-                    Event::Key(k) if k.kind != KeyEventKind::Release => app.tecla(k),
-                    Event::Paste(s) => app.colar(s),
-                    Event::Mouse(m) => app.mouse(m),
-                    _ => {}
-                }
-                if !event::poll(Duration::ZERO)? {
-                    break;
-                }
-            }
-            app.sujo.store(true, Ordering::Relaxed);
-        }
-    }
-    Ok(())
+    tauri::Builder::default()
+        .manage(estado)
+        .invoke_handler(tauri::generate_handler![inicio, abrir, escrever, redimensionar, fechar, status])
+        .run(tauri::generate_context!())
+        .expect("erro ao abrir a janela");
 }

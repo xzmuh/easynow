@@ -1,20 +1,8 @@
 # easynow
 
-Um terminal só para os agentes. Em vez de 4 janelas abertas (claude, codex, shell...),
-cada uma vira uma aba aqui dentro. O meio mostra o terminal da aba ativa e as laterais
-mostram o que importa: quem está trabalhando, quem terminou e está te esperando, pasta,
-branch, CPU/RAM de cada agente.
-
-```
- EASYNOW  1 ⠹ arrumando login   2 ✓ testes   3   deploy   4   shell
-┌ SESSÕES ──────────┐┌ 1 arrumando login ────────────────┐┌ AGENTE ATIVO ─────┐
-│▌1 claude trabalh… ││                                   ││ pasta, branch,    │
-│ 2 codex  pronto ✓ ││     terminal da aba ativa         ││ tempo trabalhando,│
-│ 3 claude parado   ││                                   ││ CPU, RAM...       │
-├ SISTEMA ──────────┤│                                   │├ ATALHOS ──────────┤
-├ EVENTOS ──────────┤│                                   ││                   │
-└───────────────────┘└───────────────────────────────────┘└───────────────────┘
-```
+Uma janela só para os agentes. Em vez de 4 terminais abertos (claude, codex, shell...),
+cada um vira uma aba aqui dentro, com telemetria em volta: quem está trabalhando, quem
+terminou e está te esperando, pasta, branch, CPU e memória de cada agente, e um log de eventos.
 
 ## Usar
 
@@ -25,16 +13,7 @@ easynow
 ```
 
 Abre claude, codex e shell. Para escolher as abas: `easynow claude claude codex shell`.
-Todas abrem na pasta onde você rodou o comando.
-
-## Instalar
-
-```sh
-cargo build --release
-ln -s "$PWD/target/release/easynow" ~/.local/bin/easynow   # ~/.local/bin precisa estar no PATH
-```
-
-Depois de mudar o código, é só rodar `cargo build --release` de novo.
+A janela abre solta do terminal (pode fechar o terminal depois).
 
 ## Atalhos
 
@@ -42,26 +21,28 @@ Depois de mudar o código, é só rodar `cargo build --release` de novo.
 |---|---|
 | `Alt+1..9` | ir para a aba |
 | `Ctrl+PgUp` / `Ctrl+PgDn` | aba anterior / próxima |
-| `Alt+t` | nova aba (depois `c` claude, `x` codex, `s` shell), na mesma pasta da aba atual |
-| `Alt+w` | fechar aba |
-| `Alt+r` | reiniciar uma aba que encerrou |
-| `Alt+g` | ver todas em grade / só a ativa |
-| `Alt+b` | esconder os painéis laterais |
-| `Shift+PgUp` / `Shift+PgDn` ou rodinha do mouse | histórico |
-| `Shift+arrastar` | selecionar texto |
-| `Alt+q` | sair |
+| `Ctrl+Shift+T` | nova aba (`C` claude, `X` codex, `S` shell), na pasta da aba atual |
+| `Ctrl+Shift+W` | fechar aba (ou o ✕ / botão do meio na aba) |
+| `Ctrl+Shift+G` | ver todas em grade |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` | copiar / colar |
 
-Todo o resto vai direto para o programa da aba.
+## Instalar / atualizar
+
+```sh
+cargo build --release
+ln -sf "$PWD/target/release/easynow" ~/.local/bin/easynow   # ~/.local/bin precisa estar no PATH
+```
+
+Depois de mexer no código (Rust ou `ui/`), rode `cargo build --release` de novo: a interface vai embutida no binário.
 
 ## Como funciona
 
-- `src/aba.rs`: cada aba abre o programa numa PTY (um terminal virtual). Uma thread lê o que ele
-  escreve e passa para o `vt100`, que monta a tela. É dali que vem o título que o claude/codex colocam.
-  "Trabalhando" = saiu coisa na tela há pouco e não foi só o eco do que você digitou.
-- `src/teclas.rs`: transforma a tecla apertada nos bytes que um terminal mandaria.
-- `src/telemetria.rs`: uma thread que mede CPU/RAM de cada aba (somando os processos filhos), pasta e branch.
-- `src/tela.rs`: desenha tudo com `ratatui`.
-- `src/main.rs`: loop principal e atalhos.
+- **Janela:** [Tauri](https://tauri.app). A interface é HTML/CSS/JS em `ui/`, os terminais são [xterm.js](https://xtermjs.org).
+- `src/pty.rs`: cada aba abre o programa numa PTY (terminal virtual). Uma thread lê a saída e manda para a janela (evento `saida`).
+- `src/telemetria.rs`: mede CPU/RAM de cada aba (somando os processos filhos), pasta atual e branch do git.
+- `src/main.rs`: os comandos que a janela chama (`abrir`, `escrever`, `redimensionar`, `fechar`, `status`).
+- `ui/app.js`: abas, estados ("trabalhando" = saiu coisa na tela há pouco e não foi o eco do que você digitou), atalhos e painéis.
+- `ui/estilo.css`: o visual (cinza, azul-escuro e azul-claro neon).
 
 ## Próximo
 
