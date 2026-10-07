@@ -178,10 +178,26 @@ function estadoDe(aba) {
 
 const TAG = { trabalhando: "Trabalhando", pronto: "Pronto", parado: "Parado", encerrado: "Encerrado" };
 
-function nomeCurto(aba) {
+// Título que vale mostrar: ignora os genéricos (usuario@maquina:pasta, nome da pasta, "Claude Code").
+function tituloUtil(aba) {
   // tira os ícones de spinner que o claude/codex põem no começo do título
   const t = aba.titulo.replace(/^[^\p{L}\p{N}~/]+/u, "").trim();
-  return t || NOME[aba.tipo];
+  const pasta = (aba.st?.pasta || aba.pasta || "").split("/").pop();
+  const generico = /^[^\s@]+@[^\s:]+(:|$)/.test(t) || t === pasta || /^(claude code|codex|claude)$/i.test(t);
+  return generico ? "" : t;
+}
+
+// Nome curto (abas, lista de sessões)
+function nomeCurto(aba) {
+  const t = tituloUtil(aba);
+  if (t) return t;
+  return aba.tipo === "shell" ? `Shell · ${curto(aba.st?.pasta || aba.pasta)}` : NOME[aba.tipo];
+}
+
+// Nome com o agente na frente (cabeçalho do terminal)
+function nomeCompleto(aba) {
+  const t = tituloUtil(aba);
+  return t ? `${NOME[aba.tipo]} · ${t}` : nomeCurto(aba);
 }
 
 // ---------- desenho ----------
@@ -201,7 +217,7 @@ function desenhar() {
   // quadros (títulos na grade)
   abas.forEach((x) => {
     x.el.querySelector(".quadro-topo .ic").className = `ic ${estadoDe(x)}`;
-    x.el.querySelector(".quadro-topo .t").textContent = `${NOME[x.tipo]} · ${nomeCurto(x)}`;
+    x.el.querySelector(".quadro-topo .t").textContent = nomeCompleto(x);
   });
   const t = $("#terminais");
   t.classList.toggle("grade", grade && abas.length > 1);
@@ -253,7 +269,7 @@ function desenhar() {
   // cabeçalho do terminal
   if (a) {
     $("#ba-ic").className = `ic ${estadoDe(a)}`;
-    $("#ba-titulo").textContent = `${NOME[a.tipo]} · ${nomeCurto(a)}`;
+    $("#ba-titulo").textContent = nomeCompleto(a);
     $("#ba-pasta").textContent = curto(a.st?.pasta || a.pasta);
     const br = $("#ba-branch");
     br.hidden = !a.st?.branch;
@@ -268,7 +284,7 @@ function desenhar() {
   opTag.textContent = op ? TAG[op] : "Nenhum";
   $("#op-titulo").textContent = !a ? "Aguardando instrução"
     : op === "encerrado" ? "Processo encerrado"
-    : a.titulo ? nomeCurto(a) : "Aguardando instrução";
+    : tituloUtil(a) || "Aguardando instrução";
   $("#op-desc").textContent = !a ? "Nenhum agente aberto."
     : op === "trabalhando" ? `${NOME[a.tipo]} trabalhando há ${duracao(Date.now() - a.trabalhandoDesde)}.`
     : op === "pronto" ? `${NOME[a.tipo]} terminou e está te esperando.`

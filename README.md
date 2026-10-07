@@ -12,7 +12,7 @@ Abra o terminal na pasta do projeto e digite:
 easynow
 ```
 
-Abre claude, codex e shell. Para escolher as abas: `easynow claude claude codex shell`.
+Abre um Claude. As outras abas você abre pelo botão "Nova aba", ou já pede na hora: `easynow claude claude codex shell`.
 A janela abre solta do terminal (pode fechar o terminal depois).
 
 ## Atalhos

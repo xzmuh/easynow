@@ -152,7 +152,7 @@ fn status(estado: State<Estado>) -> Status {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
-        println!("uso: easynow [claude|codex|shell ...]\n\nsem nada abre claude, codex e shell.\nex.: easynow claude claude codex shell");
+        println!("uso: easynow [claude|codex|shell ...]\n\nsem nada abre um claude.\nex.: easynow claude claude codex shell");
         return;
     }
     let mut iniciais = vec![];
@@ -166,7 +166,7 @@ fn main() {
         }
     }
     if iniciais.is_empty() {
-        iniciais = vec!["claude".into(), "codex".into(), "shell".into()];
+        iniciais = vec!["claude".into()];
     }
 
     // Solta o terminal: a janela continua aberta mesmo se você fechar o terminal de onde rodou.
