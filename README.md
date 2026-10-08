@@ -33,7 +33,7 @@ Quando um Claude termina uma tarefa, toca um aviso curto e grave. Ao abrir, o ea
 O botão de alto-falante no topo da janela muta e desmuta. O som e a marca de mudo ficam em `~/.config/easynow/`.
 
 Precisa de `paplay`, `pw-play` ou `aplay` (qualquer Linux com PulseAudio, PipeWire ou ALSA já tem um deles).
-Para tirar de vez, apague o hook com `/hooks` dentro do Claude.
+Se apagar o hook, o easynow coloca de novo ao abrir; para não ouvir, use o botão de mudo.
 
 ## Atalhos
 
