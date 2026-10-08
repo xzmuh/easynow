@@ -18,7 +18,8 @@ A janela abre solta do terminal (pode fechar o terminal depois).
 ## Várias contas (Claude e Codex)
 
 O easynow acha sozinho cada conta: a padrão (`~/.claude`, `~/.codex`) e qualquer pasta `~/.claude-<nome>`
-ou `~/.codex-<nome>` com login feito. Elas aparecem como Conta 1, Conta 2... de cada programa.
+ou `~/.codex-<nome>` com login feito. As do Claude aparecem com o nome da organização (ou o começo do e-mail);
+as do Codex, como Conta 1, Conta 2...
 Para adicionar uma conta, abra "Nova aba", escolha **Adicionar conta** e depois Claude ou Codex: abre o programa
 numa pasta nova (`~/.claude-2`, `~/.codex-2`...) e ele pede o login. Depois de entrar, a conta já aparece no menu
 (a do Claude também ganha o som de aviso). A conta nova do Codex começa com o `config.toml` da padrão.

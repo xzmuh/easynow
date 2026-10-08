@@ -72,7 +72,7 @@ fn contas_de(tipo: &str) -> Vec<Conta> {
         .collect()
 }
 
-/// "Next SI" (nome da organização) ou, se for o nome automático, o começo do e-mail ("Nuveto").
+/// Nome da organização ("Acme") ou, se for o nome automático, o começo do e-mail ("joao@..." vira "Joao").
 fn nome_da_conta(arquivo: &Path) -> Option<String> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).ok()?).ok()?;
     let conta = v.get("oauthAccount")?;

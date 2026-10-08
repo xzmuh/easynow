@@ -31,7 +31,7 @@ let grade = false;
 let proxId = 1;
 let home = "";
 let limites = [];
-let contas = []; // contas do Claude (Next SI, Nuveto...) e do Codex (Conta 1, Conta 2...)
+let contas = []; // contas do Claude (pelo nome da organização/e-mail) e do Codex (Conta 1, Conta 2...)
 let menuConta = false; // menu de nova aba mostrando "Adicionar conta: Claude ou Codex?"
 const contasDe = (tipo) => contas.filter((c) => c.tipo === tipo);
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
@@ -242,7 +242,7 @@ function nomeConta(aba) {
   return aba.tipo !== "shell" && aba.conta && contasDe(aba.tipo).length > 1 ? aba.conta.nome : "";
 }
 
-// "Claude · Nuveto", "Codex · Conta 2", "Shell"
+// "Claude · Acme", "Codex · Conta 2", "Shell"
 function rotulo(aba) {
   const c = nomeConta(aba);
   return c ? `${NOME[aba.tipo]} · ${c}` : NOME[aba.tipo];
