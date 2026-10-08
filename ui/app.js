@@ -31,7 +31,7 @@ let grade = false;
 let proxId = 1;
 let home = "";
 let limites = [];
-let contas = []; // contas do Claude e do Codex (Conta 1, Conta 2... de cada tipo)
+let contas = []; // contas do Claude (Next SI, Nuveto...) e do Codex (Conta 1, Conta 2...)
 let menuConta = false; // menu de nova aba mostrando "Adicionar conta: Claude ou Codex?"
 const contasDe = (tipo) => contas.filter((c) => c.tipo === tipo);
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
@@ -231,10 +231,10 @@ function tituloUtil(aba) {
 // Cor fixa de cada conta: Claude verde e roxo, Codex azul e ciano (Shell sem cor)
 function corDe(aba) {
   if (aba.tipo === "shell" || aba.tipo === "login") return "";
-  const n = aba.conta?.nome || "Conta 1";
-  const segunda = n === "Conta 2";
-  if (aba.tipo === "codex") return segunda ? "cor-codex2" : "cor-codex";
-  return n === "Conta 1" ? "cor-conta1" : segunda ? "cor-conta2" : "";
+  // pela posição na lista: a primeira conta de cada programa, a segunda...
+  const i = aba.conta ? contasDe(aba.tipo).findIndex((c) => c.dir === aba.conta.dir) : 0;
+  if (aba.tipo === "codex") return i === 1 ? "cor-codex2" : "cor-codex";
+  return i === 0 ? "cor-conta1" : i === 1 ? "cor-conta2" : "";
 }
 
 // Nome da conta só quando aquele programa tem mais de uma
@@ -242,7 +242,7 @@ function nomeConta(aba) {
   return aba.tipo !== "shell" && aba.conta && contasDe(aba.tipo).length > 1 ? aba.conta.nome : "";
 }
 
-// "Claude · Conta 2", "Codex", "Shell"
+// "Claude · Nuveto", "Codex · Conta 2", "Shell"
 function rotulo(aba) {
   const c = nomeConta(aba);
   return c ? `${NOME[aba.tipo]} · ${c}` : NOME[aba.tipo];

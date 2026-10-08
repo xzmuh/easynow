@@ -61,12 +61,29 @@ fn contas_de(tipo: &str) -> Vec<Conta> {
         .enumerate()
         .map(|(i, dir)| Conta {
             tipo: tipo.into(),
-            // nome neutro ("Conta 1", "Conta 2"...) para não aparecer organização nem e-mail na tela
-            nome: format!("Conta {}", i + 1),
+            // Claude: nome da organização ou do e-mail; Codex: "Conta 1", "Conta 2"...
+            nome: (tipo == "claude")
+                .then(|| nome_da_conta(&if i == 0 && tem_padrao { home.join(".claude.json") } else { dir.join(".claude.json") }))
+                .flatten()
+                .unwrap_or_else(|| format!("Conta {}", i + 1)),
             padrao: i == 0 && tem_padrao,
             dir: dir.to_string_lossy().into(),
         })
         .collect()
+}
+
+/// "Next SI" (nome da organização) ou, se for o nome automático, o começo do e-mail ("Nuveto").
+fn nome_da_conta(arquivo: &Path) -> Option<String> {
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).ok()?).ok()?;
+    let conta = v.get("oauthAccount")?;
+    let org = conta.get("organizationName").and_then(Value::as_str).unwrap_or("");
+    if !org.is_empty() && !org.contains("'s Organization") {
+        return Some(org.to_string());
+    }
+    let email = conta.get("emailAddress")?.as_str()?;
+    let primeiro = email.split(['.', '@', '_', '-']).next()?;
+    let mut c = primeiro.chars();
+    Some(c.next()?.to_uppercase().chain(c).collect())
 }
 
 /// Pasta para uma conta nova: a primeira ~/.claude-N (ou ~/.codex-N) ainda sem login.
