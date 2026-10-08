@@ -52,9 +52,13 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
     cursorBlink: false,
     scrollback: 10000,
     allowProposedApi: true,
+    // links que o programa marca (OSC 8), como os do Claude
+    linkHandler: { activate: (_ev, uri) => abrirLink(uri) },
   });
   const fit = new FitAddon.FitAddon();
   term.loadAddon(fit);
+  // endereços soltos no texto (https://...)
+  term.loadAddon(new WebLinksAddon.WebLinksAddon((_ev, uri) => abrirLink(uri)));
 
   const aba = {
     id, tipo, conta, term, fit, el,
@@ -89,6 +93,10 @@ async function novaAba(tipo, pastaDe = null, conta = null) {
     term.write(`\r\n  Não consegui abrir o ${rotulo(aba)}: ${e}\r\n`);
   }
   desenhar();
+}
+
+function abrirLink(uri) {
+  invoke("abrir_link", { url: uri });
 }
 
 function ajustar(aba) {
@@ -201,6 +209,14 @@ function tituloUtil(aba) {
   return generico ? "" : t;
 }
 
+// Cor fixa de cada conta: Next verde, Nuveto roxo, Codex azul (Shell sem cor)
+function corDe(aba) {
+  if (aba.tipo === "codex") return "cor-codex";
+  if (aba.tipo !== "claude") return "";
+  const n = (aba.conta?.nome || "").toLowerCase();
+  return n.includes("nuveto") ? "cor-nuveto" : n.includes("next") ? "cor-next" : "";
+}
+
 // "Claude · Nuveto", "Codex", "Shell"
 function rotulo(aba) {
   return aba.tipo === "claude" && aba.conta && contas.length > 1 ? `Claude · ${aba.conta.nome}` : NOME[aba.tipo];
@@ -228,11 +244,12 @@ function nomeCompleto(aba) {
 
 function desenhar() {
   const a = abas[ativa];
+  const LIXO = '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
   const X = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
   // abas
   pôr("#abas", abas.map((x, i) => `
-    <button class="aba ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(`${rotulo(x)} · ${nomeCurto(x)} — ${workspace(x)}`)}">
+    <button class="aba ${corDe(x)} ${i === ativa ? "ativa" : ""}" data-i="${i}" title="${esc(`${rotulo(x)} · ${nomeCurto(x)} — ${workspace(x)}`)}">
       <span class="ic ${estadoDe(x)}"></span>
       <span class="nome">${esc(nomeCurto(x))}</span>
       <span class="ws">${esc(workspace(x))}</span>
@@ -244,6 +261,7 @@ function desenhar() {
 
   // quadros (títulos na grade)
   abas.forEach((x) => {
+    x.el.className = `quadro ${corDe(x)} ${x === a ? "ativo" : ""}`;
     x.el.querySelector(".quadro-topo .ic").className = `ic ${estadoDe(x)}`;
     x.el.querySelector(".quadro-topo .t").textContent = nomeCompleto(x);
   });
@@ -274,10 +292,11 @@ function desenhar() {
       : e === "encerrado" ? `encerrou (código ${x.codigo})`
       : "parado";
     return `
-    <li class="${i === ativa ? "ativa" : ""}" data-i="${i}">
+    <li class="${corDe(x)} ${i === ativa ? "ativa" : ""}" data-i="${i}">
       <span class="ic ${e}"></span>
       <b>${esc(nomeCurto(x))}</b>
-      <span class="tag ${e}">${esc(x.tipo === "claude" && x.conta && contas.length > 1 ? x.conta.nome : NOME[x.tipo])}</span>
+      <span class="tag conta">${esc(x.tipo === "claude" && x.conta && contas.length > 1 ? x.conta.nome : NOME[x.tipo])}</span>
+      <button class="lixo" data-fechar="${i}" title="Fechar conversa">${LIXO}</button>
       <small>${esc(`${workspace(x)} · ${desc}`)}</small>
     </li>`;
   }).join(""));
@@ -336,6 +355,7 @@ function desenharLimites() {
     : a?.tipo === "claude" ? l.chave === a.conta?.dir
     : false);
   $("#card-limites").hidden = !a || a.tipo === "shell";
+  $("#card-limites").className = `card ${a ? corDe(a) : ""}`;
   $("#limites-conta").textContent = a?.tipo === "claude" ? a.conta?.nome || "" : a?.tipo === "codex" ? "Codex" : "";
   pôr("#limites", lista.length ? lista.map((l) => `
     <div class="limite">
@@ -364,7 +384,7 @@ function opcoesNovo() {
 function abrirMenu() {
   const menu = $("#menu-novo");
   menu.innerHTML = opcoesNovo().map((o, i) =>
-    `<button data-opcao="${i}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
+    `<button data-opcao="${i}" class="${corDe(o)}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
   const r = ($("#btn-mais") || $("#btn-grade")).getBoundingClientRect();
   menu.style.left = `${Math.min(r.left, window.innerWidth - 280)}px`;
   menu.style.top = `${r.bottom + 8}px`;
@@ -595,6 +615,8 @@ $("#abas").addEventListener("auxclick", (ev) => {
 });
 for (const sel of ["#sessoes"]) {
   $(sel).addEventListener("click", (ev) => {
+    const f = ev.target.closest("[data-fechar]");
+    if (f) return pedirFechar(Number(f.dataset.fechar));
     const li = ev.target.closest("[data-i]");
     if (li) ativar(Number(li.dataset.i));
   });

@@ -132,6 +132,14 @@ fn voz_ligada(dir: String) -> bool {
     voz::ligada(&dir)
 }
 
+/// Abre um link do terminal no navegador padrão.
+#[tauri::command]
+fn abrir_link(url: String) {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
@@ -201,7 +209,8 @@ fn main() {
             pedir_limites,
             voz_ouvir,
             voz_parar,
-            voz_ligada
+            voz_ligada,
+            abrir_link
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir a janela");
