@@ -9,11 +9,12 @@ use serde_json::{json, Value};
 
 use crate::uso::Conta;
 
+// o aviso.wav começa com meio segundo de silêncio: fone Bluetooth engole o início do som enquanto acorda
 const AVISO: &[u8] = include_bytes!("../assets/aviso.wav");
 
 /// Tenta os players mais comuns do Linux; o primeiro que existir toca.
 const COMANDO: &str = "f=\"$HOME/.config/easynow/aviso.wav\"; [ -e \"$HOME/.config/easynow/mudo\" ] || \
-paplay --volume=36000 \"$f\" 2>/dev/null || pw-play --volume=0.55 \"$f\" 2>/dev/null || aplay -q \"$f\" 2>/dev/null; true";
+paplay \"$f\" 2>/dev/null || pw-play \"$f\" 2>/dev/null || aplay -q \"$f\" 2>/dev/null; true";
 
 fn pasta() -> PathBuf {
     PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".config/easynow")
