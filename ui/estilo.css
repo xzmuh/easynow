@@ -503,11 +503,12 @@ h2 {
   .marca { width: 230px; }
 }
 
-/* ---------- cor de cada conta: Conta 1 verde, Conta 2 roxo, Codex azul ---------- */
+/* ---------- cor de cada conta: Claude verde e roxo, Codex azul e ciano ---------- */
 
 .cor-conta1 { --cor: #4ade80; --cor-fraca: rgba(74, 222, 128, 0.14); }
 .cor-conta2 { --cor: #a78bfa; --cor-fraca: rgba(167, 139, 250, 0.16); }
 .cor-codex { --cor: #60a5fa; --cor-fraca: rgba(96, 165, 250, 0.16); }
+.cor-codex2 { --cor: #22d3ee; --cor-fraca: rgba(34, 211, 238, 0.16); }
 
 /* aba: traço colorido embaixo */
 .aba[class*="cor-"] { box-shadow: inset 0 -2px 0 var(--cor-fraca); }
@@ -544,3 +545,6 @@ h2 {
 
 /* menu de nova aba */
 .menu button[class*="cor-"] b { color: var(--cor); }
+.menu button.adicionar { margin-top: 4px; background: rgba(251, 146, 60, 0.12); }
+.menu button.adicionar:hover { background: rgba(251, 146, 60, 0.2); }
+.menu button.adicionar b { color: #fb923c; }

@@ -31,13 +31,15 @@ let grade = false;
 let proxId = 1;
 let home = "";
 let limites = [];
-let contas = []; // contas do Claude (Conta 1, Conta 2...)
+let contas = []; // contas do Claude e do Codex (Conta 1, Conta 2... de cada tipo)
+let menuConta = false; // menu de nova aba mostrando "Adicionar conta: Claude ou Codex?"
+const contasDe = (tipo) => contas.filter((c) => c.tipo === tipo);
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
 
 // ---------- abas ----------
 
 async function novaAba(tipo, pastaDe = null, conta = null) {
-  if (tipo === "claude" && !conta) conta = contas[0] || null;
+  if (tipo !== "shell" && !conta) conta = contasDe(tipo)[0] || null;
   const id = proxId++;
   const el = document.createElement("div");
   el.className = "quadro";
@@ -226,17 +228,24 @@ function tituloUtil(aba) {
   return generico ? "" : t;
 }
 
-// Cor fixa de cada conta: Conta 1 verde, Conta 2 roxo, Codex azul (Shell sem cor)
+// Cor fixa de cada conta: Claude verde e roxo, Codex azul e ciano (Shell sem cor)
 function corDe(aba) {
-  if (aba.tipo === "codex") return "cor-codex";
-  if (aba.tipo !== "claude") return "";
-  const n = aba.conta?.nome || "";
-  return n === "Conta 1" ? "cor-conta1" : n === "Conta 2" ? "cor-conta2" : "";
+  if (aba.tipo === "shell" || aba.tipo === "login") return "";
+  const n = aba.conta?.nome || "Conta 1";
+  const segunda = n === "Conta 2";
+  if (aba.tipo === "codex") return segunda ? "cor-codex2" : "cor-codex";
+  return n === "Conta 1" ? "cor-conta1" : segunda ? "cor-conta2" : "";
+}
+
+// Nome da conta só quando aquele programa tem mais de uma
+function nomeConta(aba) {
+  return aba.tipo !== "shell" && aba.conta && contasDe(aba.tipo).length > 1 ? aba.conta.nome : "";
 }
 
 // "Claude · Conta 2", "Codex", "Shell"
 function rotulo(aba) {
-  return aba.tipo === "claude" && aba.conta && contas.length > 1 ? `Claude · ${aba.conta.nome}` : NOME[aba.tipo];
+  const c = nomeConta(aba);
+  return c ? `${NOME[aba.tipo]} · ${c}` : NOME[aba.tipo];
 }
 
 // Projeto em que a aba está: pasta do repositório git, ou a pasta atual
@@ -312,7 +321,7 @@ function desenhar() {
     <li class="${corDe(x)} ${i === ativa ? "ativa" : ""}" data-i="${i}">
       <span class="ic ${e}"></span>
       <b>${esc(nomeCurto(x))}</b>
-      <span class="tag conta">${esc(x.tipo === "claude" && x.conta && contas.length > 1 ? x.conta.nome : NOME[x.tipo])}</span>
+      <span class="tag conta">${esc(nomeConta(x) || NOME[x.tipo])}</span>
       <button class="lixo" data-fechar="${i}" title="Fechar conversa">${LIXO}</button>
       <small>${esc(`${workspace(x)} · ${desc}`)}</small>
     </li>`;
@@ -348,7 +357,7 @@ function desenhar() {
   if (a) {
     const tk = a.info?.tokens;
     const pares = [
-      ...(a.tipo === "claude" && a.conta ? [["Conta", a.conta.nome]] : []),
+      ...(nomeConta(a) ? [["Conta", nomeConta(a)]] : []),
       ...(tk ? [
         ["Modelo", modelo(tk.modelo)],
         ["Contexto", numero(tk.contexto)],
@@ -367,13 +376,10 @@ function desenhar() {
 // Só os limites da conta da aba que você está vendo (Shell não tem).
 function desenharLimites() {
   const a = abas[ativa];
-  const lista = limites.filter((l) =>
-    a?.tipo === "codex" ? l.chave === "codex"
-    : a?.tipo === "claude" ? l.chave === a.conta?.dir
-    : false);
+  const lista = limites.filter((l) => a?.tipo !== "shell" && l.chave === a?.conta?.dir);
   $("#card-limites").hidden = !a || a.tipo === "shell";
   $("#card-limites").className = `card ${a ? corDe(a) : ""}`;
-  $("#limites-conta").textContent = a?.tipo === "claude" ? a.conta?.nome || "" : a?.tipo === "codex" ? "Codex" : "";
+  $("#limites-conta").textContent = a && a.tipo !== "shell" ? rotulo(a) : "";
   pôr("#limites", lista.length ? lista.map((l) => `
     <div class="limite">
       ${l.erro ? `<small class="limite-erro">${esc(l.erro)}</small>` : [["Sessão", l.sessao], ["Semana", l.semana]]
@@ -391,19 +397,41 @@ function desenharLimites() {
 // ---------- menu de nova aba ----------
 
 function opcoesNovo() {
+  if (menuConta) {
+    return [
+      { tipo: "login", programa: "claude", titulo: "Claude", sub: "Entrar com outra conta do Claude" },
+      { tipo: "login", programa: "codex", titulo: "Codex", sub: "Entrar com outra conta do Codex" },
+    ];
+  }
+  // cada conta de cada programa; sem nenhum login, o programa aparece sozinho
+  const de = (tipo, sub) => {
+    const cs = contasDe(tipo);
+    if (!cs.length) return [{ tipo, titulo: NOME[tipo], sub }];
+    return cs.map((c) => ({ tipo, conta: c, titulo: rotulo({ tipo, conta: c }), sub: curto(c.dir) }));
+  };
   return [
-    ...contas.map((c) => ({ tipo: "claude", conta: c, titulo: contas.length > 1 ? `Claude · ${c.nome}` : "Claude", sub: curto(c.dir) })),
-    { tipo: "codex", titulo: "Codex", sub: "OpenAI Codex" },
+    ...de("claude", "Anthropic Claude"),
+    ...de("codex", "OpenAI Codex"),
     { tipo: "shell", titulo: "Shell", sub: "Terminal comum" },
-    { tipo: "login", titulo: "Adicionar conta", sub: "Entrar com outra conta do Claude" },
+    { tipo: "conta", titulo: "Adicionar conta", sub: "Claude ou Codex", classe: "adicionar" },
   ];
+}
+
+function desenharMenu() {
+  $("#menu-novo").innerHTML = opcoesNovo().map((o, i) =>
+    `<button data-opcao="${i}" class="${o.classe || corDe(o)}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
+}
+
+function fecharMenu() {
+  $("#menu-novo").hidden = true;
+  menuConta = false;
 }
 
 async function abrirMenu() {
   await recarregarContas();
+  menuConta = false;
+  desenharMenu();
   const menu = $("#menu-novo");
-  menu.innerHTML = opcoesNovo().map((o, i) =>
-    `<button data-opcao="${i}" class="${corDe(o)}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
   const r = ($("#btn-mais") || $("#btn-grade")).getBoundingClientRect();
   menu.style.left = `${Math.min(r.left, window.innerWidth - 280)}px`;
   menu.style.top = `${r.bottom + 8}px`;
@@ -412,11 +440,17 @@ async function abrirMenu() {
 
 async function escolher(i) {
   const o = opcoesNovo()[i];
-  $("#menu-novo").hidden = true;
+  if (o?.tipo === "conta") {
+    // segundo passo no mesmo menu: de qual programa é a conta
+    menuConta = true;
+    return desenharMenu();
+  }
+  fecharMenu();
   if (o?.tipo === "login") {
-    // Claude numa pasta de configuração nova: ele mesmo pede o login na primeira vez
-    const dir = await invoke("conta_nova");
-    novaAba("claude", abas[ativa]?.id ?? null, { nome: "Nova conta", dir, padrao: false, nova: true });
+    // programa numa pasta de configuração nova: ele mesmo pede o login na primeira vez
+    const tipo = o.programa;
+    const dir = await invoke("conta_nova", { tipo });
+    novaAba(tipo, abas[ativa]?.id ?? null, { tipo, nome: "Nova conta", dir, padrao: false, nova: true });
   } else if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
 }
 
@@ -573,7 +607,7 @@ function atalho(ev) {
   }
   if (!$("#menu-novo").hidden) {
     if (/^[1-9]$/.test(k)) escolher(Number(k) - 1);
-    else $("#menu-novo").hidden = true;
+    else fecharMenu();
     return true;
   }
 
@@ -635,7 +669,7 @@ function fecharModal(sim) {
 $("#abas").addEventListener("click", (ev) => {
   if (ev.target.closest("#btn-mais")) {
     ev.stopPropagation();
-    return $("#menu-novo").hidden ? abrirMenu() : ($("#menu-novo").hidden = true);
+    return $("#menu-novo").hidden ? abrirMenu() : fecharMenu();
   }
   const f = ev.target.closest("[data-fechar]");
   if (f) return pedirFechar(Number(f.dataset.fechar));
@@ -659,7 +693,7 @@ document.addEventListener("click", (ev) => {
   const t = ev.target.closest("[data-tipo]");
   if (o) escolher(Number(o.dataset.opcao));
   else if (t) escolher(opcoesNovo().findIndex((x) => x.tipo === t.dataset.tipo));
-  else if (!ev.target.closest(".menu")) $("#menu-novo").hidden = true;
+  else if (!ev.target.closest(".menu")) fecharMenu();
 });
 $("#btn-grade").addEventListener("click", alternarGrade);
 $("#btn-som").addEventListener("click", () => desenharSom(!mudo, true));

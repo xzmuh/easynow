@@ -4,7 +4,7 @@
 // - Claude: grava em <config>/sessions/<pid>.json se está "busy" ou "idle". O Linux
 //   avisa (inotify) quando esse arquivo muda; aí lemos o estado e, quando termina, os tokens.
 // - Codex: grava "task_started" / "task_complete" e os tokens no arquivo da sessão
-//   (~/.codex/sessions/...jsonl). Mesmo esquema: o Linux avisa quando o arquivo cresce.
+//   (<config>/sessions/...jsonl, uma pasta por conta). Mesmo esquema: o Linux avisa quando o arquivo cresce.
 // - Shell: não grava nada, então a própria saída do terminal acorda a thread da aba;
 //   depois de 1,5 s em silêncio ela marca "parado" e volta a dormir.
 // - Limites de uso: só são buscados quando você troca de aba ou um agente termina,
@@ -44,7 +44,7 @@ struct Info {
 struct Vigiada {
     tipo: String,
     pid: u32,
-    /// pasta de configuração da conta (só Claude)
+    /// pasta de configuração da conta (Claude e Codex)
     config: Option<PathBuf>,
     trabalhando: bool,
     /// arquivo da sessão do Codex, quando já descoberto
@@ -56,7 +56,7 @@ pub struct Monitor {
     abas: Mutex<HashMap<u32, Vigiada>>,
     leitor: Mutex<Leitor>,
     contas: Mutex<Vec<Conta>>,
-    /// chave (pasta da conta ou "codex") -> (quando buscou, limite)
+    /// chave (pasta da conta) -> (quando buscou, limite)
     limites: Mutex<HashMap<String, (Instant, Limite)>>,
     _vigia: Mutex<Option<notify::RecommendedWatcher>>,
 }
@@ -74,20 +74,11 @@ impl Monitor {
 
         // Pede ao Linux para avisar quando os arquivos de estado mudarem.
         let (tx, rx) = mpsc::channel();
-        if let Ok(mut vigia) = notify::recommended_watcher(tx) {
-            for c in m.contas.lock().unwrap().iter() {
-                let dir = Path::new(&c.dir).join("sessions");
-                if dir.is_dir() {
-                    let _ = vigia.watch(&dir, RecursiveMode::NonRecursive);
-                }
-            }
-            if let Ok(home) = std::env::var("HOME") {
-                let codex = Path::new(&home).join(".codex/sessions");
-                if codex.is_dir() {
-                    let _ = vigia.watch(&codex, RecursiveMode::Recursive);
-                }
-            }
+        if let Ok(vigia) = notify::recommended_watcher(tx) {
             *m._vigia.lock().unwrap() = Some(vigia);
+            for c in m.contas.lock().unwrap().iter() {
+                m.vigiar_conta(c);
+            }
         }
         let eu = m.clone();
         thread::spawn(move || {
@@ -98,11 +89,14 @@ impl Monitor {
             }
         });
 
-        // limites do Codex pela última sessão (até abrir um Codex aqui)
+        // limites de cada conta do Codex pela última sessão (até abrir um Codex aqui)
         let eu = m.clone();
         thread::spawn(move || {
-            if let Some(l) = uso::limite_codex_recente() {
-                eu.guardar_limite(l);
+            let contas = eu.contas.lock().unwrap().clone();
+            for c in contas.iter().filter(|c| c.tipo == "codex") {
+                if let Some(l) = uso::limite_codex_recente(Path::new(&c.dir)) {
+                    eu.guardar_limite(l);
+                }
             }
         });
         m
@@ -116,13 +110,20 @@ impl Monitor {
         self.emitir_info(id, None);
     }
 
-    /// Conta nova (login feito com o easynow aberto): passa a vigiar as sessões dela.
-    pub fn adicionar_conta(&self, conta: Conta) {
+    /// Passa a vigiar as sessões da conta. Claude: <config>/sessions/<pid>.json;
+    /// Codex: <config>/sessions/ano/mês/dia/*.jsonl.
+    pub fn vigiar_conta(&self, conta: &Conta) {
         let dir = Path::new(&conta.dir).join("sessions");
         let _ = std::fs::create_dir_all(&dir);
+        let modo = if conta.tipo == "codex" { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
         if let Some(vigia) = self._vigia.lock().unwrap().as_mut() {
-            let _ = vigia.watch(&dir, RecursiveMode::NonRecursive);
+            let _ = vigia.watch(&dir, modo);
         }
+    }
+
+    /// Conta nova (login feito com o easynow aberto).
+    pub fn adicionar_conta(&self, conta: Conta) {
+        self.vigiar_conta(&conta);
         self.contas.lock().unwrap().push(conta);
     }
 
@@ -197,10 +198,8 @@ impl Monitor {
 
     fn arquivo_mudou(self: &Arc<Self>, caminho: &Path) {
         let texto = caminho.to_string_lossy();
-        if texto.contains("/.codex/sessions/") {
-            if texto.ends_with(".jsonl") {
-                self.codex_mudou(caminho);
-            }
+        if texto.ends_with(".jsonl") {
+            self.codex_mudou(caminho);
         } else if texto.ends_with(".json") && caminho.parent().is_some_and(|d| d.ends_with("sessions")) {
             self.claude_mudou(caminho);
         }
@@ -242,7 +241,14 @@ impl Monitor {
             conhecida.or_else(|| {
                 // arquivo novo: descobre qual Codex daqui é o dono. Primeiro por quem está
                 // com ele aberto; se não der, pela pasta gravada na primeira linha do arquivo.
-                let livres = || abas.iter().filter(|(_, a)| a.tipo == "codex" && a.arquivo.is_none());
+                // só os Codex da conta dona da pasta onde o arquivo está
+                let livres = || {
+                    abas.iter().filter(|(_, a)| {
+                        a.tipo == "codex"
+                            && a.arquivo.is_none()
+                            && a.config.as_ref().is_some_and(|c| caminho.starts_with(c.join("sessions")))
+                    })
+                };
                 let dono = livres()
                     .find(|(_, a)| tem_aberto(a.pid, caminho))
                     .or_else(|| {
@@ -260,13 +266,15 @@ impl Monitor {
             })
         };
         let Some(id) = id else { return };
+        let Some(config) = self.abas.lock().unwrap().get(&id).and_then(|a| a.config.clone()) else { return };
         let mut limite = None;
         let Some(tokens) = self.leitor.lock().unwrap().ler_codex(caminho, &mut limite) else { return };
         let ocupado = tokens.status.as_deref() == Some("busy");
         if self.definir_trabalhando(id, ocupado) && !ocupado {
             self.emitir_info(id, Some(tokens));
         }
-        if let Some(l) = limite {
+        if let Some(mut l) = limite {
+            l.chave = config.to_string_lossy().into();
             self.guardar_limite(l);
         }
     }
@@ -274,7 +282,8 @@ impl Monitor {
     /// Atualiza os limites das contas pedidas (ou de todas) se já passou um minuto.
     pub fn pedir_limites(self: &Arc<Self>, chave: Option<String>) {
         let contas = self.contas.lock().unwrap().clone();
-        for conta in contas.iter().filter(|c| chave.as_ref().is_none_or(|k| *k == c.dir)) {
+        // os do Codex chegam sozinhos pelo arquivo da sessão
+        for conta in contas.iter().filter(|c| c.tipo == "claude" && chave.as_ref().is_none_or(|k| *k == c.dir)) {
             let velho = self
                 .limites
                 .lock()

@@ -13,57 +13,72 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use serde_json::Value;
 
-// ---------- contas do Claude ----------
+// ---------- contas (Claude e Codex) ----------
 
 #[derive(Clone, Serialize)]
 pub struct Conta {
+    /// "claude" ou "codex"
+    pub tipo: String,
     pub nome: String,
-    /// pasta de configuração (~/.claude, ~/.claude-2...)
+    /// pasta de configuração (~/.claude, ~/.claude-2, ~/.codex, ~/.codex-2...)
     pub dir: String,
-    /// a padrão roda sem CLAUDE_CONFIG_DIR
+    /// a padrão roda sem CLAUDE_CONFIG_DIR / CODEX_HOME
     pub padrao: bool,
 }
 
-/// Acha as contas: ~/.claude (padrão) e cada ~/.claude-* que tenha login salvo.
+/// Pasta padrão e arquivo de login de cada tipo.
+fn base(tipo: &str) -> (&'static str, &'static str) {
+    if tipo == "codex" { (".codex", "auth.json") } else { (".claude", ".credentials.json") }
+}
+
+/// Acha as contas: ~/.claude e cada ~/.claude-* com login salvo; o mesmo para ~/.codex.
 pub fn contas() -> Vec<Conta> {
+    let mut lista = contas_de("claude");
+    lista.extend(contas_de("codex"));
+    lista
+}
+
+fn contas_de(tipo: &str) -> Vec<Conta> {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
-    let mut lista = vec![];
-    let padrao = home.join(".claude");
-    if padrao.join(".credentials.json").exists() {
-        lista.push(Conta {
-            nome: String::new(),
-            dir: padrao.to_string_lossy().into(),
-            padrao: true,
-        });
-    }
+    let (pasta, login) = base(tipo);
+    let padrao = home.join(pasta);
+    let prefixo = format!("{pasta}-");
     let mut outras: Vec<PathBuf> = std::fs::read_dir(&home)
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(".claude-"))
-                && p.join(".credentials.json").exists()
+            p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefixo)) && p.join(login).exists()
         })
         .collect();
     outras.sort();
-    for dir in outras {
-        lista.push(Conta { nome: String::new(), dir: dir.to_string_lossy().into(), padrao: false });
-    }
-    // nome neutro ("Conta 1", "Conta 2"...) para não aparecer organização nem e-mail na tela
-    for (i, c) in lista.iter_mut().enumerate() {
-        c.nome = format!("Conta {}", i + 1);
-    }
-    lista
+    let tem_padrao = padrao.join(login).exists();
+    tem_padrao
+        .then_some(padrao)
+        .into_iter()
+        .chain(outras)
+        .enumerate()
+        .map(|(i, dir)| Conta {
+            tipo: tipo.into(),
+            // nome neutro ("Conta 1", "Conta 2"...) para não aparecer organização nem e-mail na tela
+            nome: format!("Conta {}", i + 1),
+            padrao: i == 0 && tem_padrao,
+            dir: dir.to_string_lossy().into(),
+        })
+        .collect()
 }
 
-/// Pasta para uma conta nova: a primeira ~/.claude-N ainda sem login.
-pub fn pasta_conta_nova() -> PathBuf {
+/// Pasta para uma conta nova: a primeira ~/.claude-N (ou ~/.codex-N) ainda sem login.
+pub fn pasta_conta_nova(tipo: &str) -> PathBuf {
     let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
-    (2..)
-        .map(|n| home.join(format!(".claude-{n}")))
-        .find(|p| !p.join(".credentials.json").exists())
-        .unwrap()
+    let (pasta, login) = base(tipo);
+    (2..).map(|n| home.join(format!("{pasta}-{n}"))).find(|p| !p.join(login).exists()).unwrap()
+}
+
+/// Pasta da conta padrão (quando a aba não escolheu nenhuma).
+pub fn pasta_padrao(tipo: &str) -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(base(tipo).0)
 }
 
 // ---------- tokens por aba ----------
@@ -197,7 +212,8 @@ fn linha_codex(v: &Value, l: &mut Leitura, limites: &mut Option<Limite>) {
                 l.t.contexto = n(ultimo, "input_tokens");
             }
             if let Some(r) = p.get("rate_limits") {
-                *limites = Some(limite_codex(r));
+                // a chave (pasta da conta) quem põe é o monitor, que sabe de qual aba é o arquivo
+                *limites = Some(limite_codex(r, Path::new("")));
             }
         }
         _ => {}
@@ -215,7 +231,7 @@ pub struct Janela {
 
 #[derive(Clone, Serialize)]
 pub struct Limite {
-    /// pasta da conta do Claude, ou "codex"
+    /// pasta da conta
     pub chave: String,
     pub nome: String,
     pub tipo: String,
@@ -224,7 +240,7 @@ pub struct Limite {
     pub erro: Option<String>,
 }
 
-fn limite_codex(r: &Value) -> Limite {
+fn limite_codex(r: &Value, dir: &Path) -> Limite {
     let janela = |k: &str| {
         r.get(k).filter(|j| !j.is_null()).map(|j| Janela {
             pct: j.get("used_percent").and_then(Value::as_f64).unwrap_or(0.0),
@@ -232,7 +248,7 @@ fn limite_codex(r: &Value) -> Limite {
         })
     };
     Limite {
-        chave: "codex".into(),
+        chave: dir.to_string_lossy().into(),
         nome: "Codex".into(),
         tipo: "codex".into(),
         sessao: janela("primary"),
@@ -276,9 +292,9 @@ pub fn limite_claude(conta: &Conta) -> Limite {
     lim
 }
 
-/// Limites do Codex pelo arquivo de sessão mais recente (quando não tem Codex aberto).
-pub fn limite_codex_recente() -> Option<Limite> {
-    let raiz = PathBuf::from(std::env::var("HOME").ok()?).join(".codex/sessions");
+/// Limites de uma conta do Codex pelo arquivo de sessão mais recente (quando não tem Codex aberto).
+pub fn limite_codex_recente(dir: &Path) -> Option<Limite> {
+    let raiz = dir.join("sessions");
     let mut arquivos = vec![];
     let mut pastas = vec![raiz];
     while let Some(p) = pastas.pop() {
@@ -297,7 +313,7 @@ pub fn limite_codex_recente() -> Option<Limite> {
     let texto = std::fs::read_to_string(mais_novo).ok()?;
     texto.lines().rev().find_map(|l| {
         let v: Value = serde_json::from_str(l).ok()?;
-        v.pointer("/payload/rate_limits").filter(|r| !r.is_null()).map(limite_codex)
+        v.pointer("/payload/rate_limits").filter(|r| !r.is_null()).map(|r| limite_codex(r, dir))
     })
 }
 

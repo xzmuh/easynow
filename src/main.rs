@@ -9,7 +9,7 @@ mod uso;
 mod voz;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -46,7 +46,7 @@ fn inicio(estado: State<Estado>) -> Inicio {
 }
 
 /// Abre um programa novo. `pasta_de` = id da aba cuja pasta atual a nova aba deve usar;
-/// `conta` = pasta de configuração do Claude (só para tipo "claude").
+/// `conta` = pasta de configuração da conta do Claude ou do Codex.
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn abrir(
@@ -67,25 +67,41 @@ fn abrir(
         .and_then(|p| std::fs::read_link(format!("/proc/{p}/cwd")).ok())
         .unwrap_or_else(|| estado.pasta.clone());
     let contas = estado.contas.lock().unwrap().clone();
-    let conta = if tipo == "claude" {
+    let conta = if tipo == "shell" {
+        None
+    } else {
         match conta {
             // pasta de uma conta nova (aba de login), que ainda não está na lista
-            Some(dir) if Some(PathBuf::from(&dir)) == Some(uso::pasta_conta_nova()) => {
-                Some(Conta { nome: "Nova conta".into(), dir, padrao: false })
+            Some(dir) if PathBuf::from(&dir) == uso::pasta_conta_nova(&tipo) => {
+                // o Codex não cria a própria pasta; e a conta nova já começa com a configuração da padrão
+                if tipo == "codex" {
+                    let _ = std::fs::create_dir_all(&dir);
+                    let destino = Path::new(&dir).join("config.toml");
+                    if !destino.exists() {
+                        let _ = std::fs::copy(uso::pasta_padrao("codex").join("config.toml"), destino);
+                    }
+                }
+                let c = Conta { tipo: tipo.clone(), nome: "Nova conta".into(), dir, padrao: false };
+                monitor.vigiar_conta(&c);
+                Some(c)
             }
-            c => c.and_then(|dir| contas.iter().find(|c| c.dir == dir)).or(contas.first()).cloned(),
+            c => {
+                let do_tipo = || contas.iter().filter(|c| c.tipo == tipo);
+                c.and_then(|dir| do_tipo().find(|c| c.dir == dir)).or(do_tipo().next()).cloned()
+            }
         }
-    } else {
-        None
     };
     let env_conta = conta.as_ref().filter(|c| !c.padrao).map(|c| c.dir.as_str());
+    // sem conta escolhida, o programa usa a pasta padrão
+    let config = (tipo != "shell")
+        .then(|| conta.as_ref().map_or_else(|| uso::pasta_padrao(&tipo), |c| PathBuf::from(&c.dir)));
 
     let ultima_entrada = Arc::new(Mutex::new(Instant::now()));
     // só o shell precisa ser acordado pela saída; Claude e Codex avisam por arquivo
     let acordar = (tipo == "shell").then(|| monitor.vigiar_shell(id, ultima_entrada.clone()));
     let aba = Aba::abrir(app, id, &tipo, env_conta, pasta.clone(), linhas, colunas, ultima_entrada, acordar)
         .map_err(|e| e.to_string())?;
-    monitor.registrar(id, &tipo, aba.pid.unwrap_or(0), conta.as_ref().map(|c| PathBuf::from(&c.dir)));
+    monitor.registrar(id, &tipo, aba.pid.unwrap_or(0), config);
     abas.insert(id, aba);
     Ok(pasta.to_string_lossy().into())
 }
@@ -138,10 +154,10 @@ fn voz_ligada(dir: String) -> bool {
     voz::ligada(&dir)
 }
 
-/// Pasta onde a aba "Adicionar conta" vai fazer o login.
+/// Pasta onde a aba "Adicionar conta" vai fazer o login (tipo "claude" ou "codex").
 #[tauri::command]
-fn conta_nova() -> String {
-    uso::pasta_conta_nova().to_string_lossy().into()
+fn conta_nova(tipo: String) -> String {
+    uso::pasta_conta_nova(&tipo).to_string_lossy().into()
 }
 
 /// Procura contas de novo (depois de um login) e já liga o som e o monitor nas novas.

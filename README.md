@@ -15,14 +15,15 @@ easynow
 Abre um Claude. As outras abas você abre pelo botão "Nova aba", ou já pede na hora: `easynow claude claude codex shell`.
 A janela abre solta do terminal (pode fechar o terminal depois).
 
-## Várias contas do Claude
+## Várias contas (Claude e Codex)
 
-O easynow acha sozinho cada conta do Claude: a padrão (`~/.claude`) e qualquer pasta `~/.claude-<nome>` com login feito.
-Para adicionar uma conta, abra "Nova aba" e escolha **Adicionar conta**: abre um Claude numa pasta nova
-(`~/.claude-2`, `~/.claude-3`...) e ele pede o login. Depois de entrar, a conta já aparece no menu, com o nome
-da organização (ou o começo do e-mail), e ganha o som de aviso.
+O easynow acha sozinho cada conta: a padrão (`~/.claude`, `~/.codex`) e qualquer pasta `~/.claude-<nome>`
+ou `~/.codex-<nome>` com login feito. Elas aparecem como Conta 1, Conta 2... de cada programa.
+Para adicionar uma conta, abra "Nova aba", escolha **Adicionar conta** e depois Claude ou Codex: abre o programa
+numa pasta nova (`~/.claude-2`, `~/.codex-2`...) e ele pede o login. Depois de entrar, a conta já aparece no menu
+(a do Claude também ganha o som de aviso). A conta nova do Codex começa com o `config.toml` da padrão.
 
-Pelo terminal dá no mesmo: `CLAUDE_CONFIG_DIR=~/.claude-trabalho claude` e `/login`.
+Pelo terminal dá no mesmo: `CLAUDE_CONFIG_DIR=~/.claude-trabalho claude` e `/login`, ou `CODEX_HOME=~/.codex-trabalho codex`.
 
 ## Som ao terminar
 
@@ -59,11 +60,11 @@ Depois de mexer no código (Rust ou `ui/`), rode `cargo build --release` de novo
 - `src/pty.rs`: cada aba abre o programa numa PTY (terminal virtual). Uma thread lê a saída e manda para a janela.
 - `src/monitor.rs`: sabe se cada aba está trabalhando **sem ficar perguntando toda hora**. Tudo dorme até algo acontecer:
   - Claude: grava `busy`/`idle` em `<config>/sessions/<pid>.json`; o Linux avisa quando o arquivo muda (inotify).
-  - Codex: grava `task_started`/`task_complete` e os tokens no arquivo da sessão em `~/.codex/sessions`; mesmo esquema.
+  - Codex: grava `task_started`/`task_complete` e os tokens no arquivo da sessão em `<conta>/sessions`; mesmo esquema.
   - Shell: a saída do terminal acorda a thread da aba; 1,5 s de silêncio e ela volta a dormir.
   - Limites de uso: buscados só ao trocar de aba ou quando um agente termina (no máximo 1x por minuto).
 - `src/som.rs`: instala o hook do som em cada conta e guarda o mudo.
-- `src/uso.rs`: contas do Claude (`~/.claude`, `~/.claude-*`), tokens de cada sessão e limites.
+- `src/uso.rs`: contas do Claude e do Codex (`~/.claude*`, `~/.codex*`), tokens de cada sessão e limites.
 - `ui/app.js`: abas, atalhos e painéis. A tela só é redesenhada quando chega um evento.
 
 Parado, com 4 abas abertas, o easynow usa ~0,2% de CPU e ~260 MB de memória (a maior parte é o WebKit da janela).

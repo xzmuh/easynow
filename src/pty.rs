@@ -38,7 +38,7 @@ fn programa(tipo: &str) -> String {
 }
 
 impl Aba {
-    /// `conta`: pasta de configuração do Claude a usar (None = a padrão).
+    /// `conta`: pasta de configuração do Claude ou do Codex a usar (None = a padrão).
     /// `acordar`: recebe um sinal a cada saída do programa (o shell usa para saber se está trabalhando).
     #[allow(clippy::too_many_arguments)]
     pub fn abrir(
@@ -65,12 +65,12 @@ impl Aba {
         cmd.env("COLORTERM", "truecolor");
         // Se o easynow foi aberto de dentro de um Claude, não passa as variáveis dele adiante.
         for (k, _) in std::env::vars() {
-            if k == "CLAUDECODE" || k == "CLAUDE_CONFIG_DIR" || k == "CLAUDE_PID" || k.starts_with("CLAUDE_CODE_") {
+            if k == "CLAUDECODE" || k == "CLAUDE_CONFIG_DIR" || k == "CLAUDE_PID" || k.starts_with("CLAUDE_CODE_") || k == "CODEX_HOME" {
                 cmd.env_remove(k);
             }
         }
         if let Some(dir) = conta {
-            cmd.env("CLAUDE_CONFIG_DIR", dir);
+            cmd.env(if tipo == "codex" { "CODEX_HOME" } else { "CLAUDE_CONFIG_DIR" }, dir);
         }
         let filho = par.slave.spawn_command(cmd)?;
         drop(par.slave);

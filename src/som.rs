@@ -39,7 +39,7 @@ pub fn instalar(contas: &[Conta]) {
     if std::fs::read(&wav).ok().as_deref() != Some(AVISO) {
         let _ = std::fs::write(&wav, AVISO);
     }
-    for c in contas {
+    for c in contas.iter().filter(|c| c.tipo == "claude") {
         pôr_hook(&Path::new(&c.dir).join("settings.json"));
     }
 }
