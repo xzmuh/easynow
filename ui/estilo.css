@@ -503,10 +503,10 @@ h2 {
   .marca { width: 230px; }
 }
 
-/* ---------- cor de cada conta: Next verde, Nuveto roxo, Codex azul ---------- */
+/* ---------- cor de cada conta: Conta 1 verde, Conta 2 roxo, Codex azul ---------- */
 
-.cor-next { --cor: #4ade80; --cor-fraca: rgba(74, 222, 128, 0.14); }
-.cor-nuveto { --cor: #a78bfa; --cor-fraca: rgba(167, 139, 250, 0.16); }
+.cor-conta1 { --cor: #4ade80; --cor-fraca: rgba(74, 222, 128, 0.14); }
+.cor-conta2 { --cor: #a78bfa; --cor-fraca: rgba(167, 139, 250, 0.16); }
 .cor-codex { --cor: #60a5fa; --cor-fraca: rgba(96, 165, 250, 0.16); }
 
 /* aba: traço colorido embaixo */

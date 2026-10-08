@@ -31,7 +31,7 @@ pub fn contas() -> Vec<Conta> {
     let padrao = home.join(".claude");
     if padrao.join(".credentials.json").exists() {
         lista.push(Conta {
-            nome: nome_da_conta(&home.join(".claude.json")).unwrap_or_else(|| "Claude".into()),
+            nome: String::new(),
             dir: padrao.to_string_lossy().into(),
             padrao: true,
         });
@@ -48,10 +48,11 @@ pub fn contas() -> Vec<Conta> {
         .collect();
     outras.sort();
     for dir in outras {
-        let nome = nome_da_conta(&dir.join(".claude.json")).unwrap_or_else(|| {
-            dir.file_name().unwrap().to_string_lossy().trim_start_matches('.').to_string()
-        });
-        lista.push(Conta { nome, dir: dir.to_string_lossy().into(), padrao: false });
+        lista.push(Conta { nome: String::new(), dir: dir.to_string_lossy().into(), padrao: false });
+    }
+    // nome neutro ("Conta 1", "Conta 2"...) para não aparecer organização nem e-mail na tela
+    for (i, c) in lista.iter_mut().enumerate() {
+        c.nome = format!("Conta {}", i + 1);
     }
     lista
 }
@@ -63,20 +64,6 @@ pub fn pasta_conta_nova() -> PathBuf {
         .map(|n| home.join(format!(".claude-{n}")))
         .find(|p| !p.join(".credentials.json").exists())
         .unwrap()
-}
-
-/// "Next SI" (nome da organização) ou, se for o nome automático, o começo do e-mail ("Nuveto").
-fn nome_da_conta(arquivo: &Path) -> Option<String> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).ok()?).ok()?;
-    let conta = v.get("oauthAccount")?;
-    let org = conta.get("organizationName").and_then(Value::as_str).unwrap_or("");
-    if !org.is_empty() && !org.contains("'s Organization") {
-        return Some(org.to_string());
-    }
-    let email = conta.get("emailAddress")?.as_str()?;
-    let primeiro = email.split(['.', '@', '_', '-']).next()?;
-    let mut c = primeiro.chars();
-    Some(c.next()?.to_uppercase().chain(c).collect())
 }
 
 // ---------- tokens por aba ----------

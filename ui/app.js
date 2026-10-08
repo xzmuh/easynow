@@ -31,7 +31,7 @@ let grade = false;
 let proxId = 1;
 let home = "";
 let limites = [];
-let contas = []; // contas do Claude (Next SI, Nuveto...)
+let contas = []; // contas do Claude (Conta 1, Conta 2...)
 let confirmar = null; // função a rodar se o usuário disser "sim" no modal
 
 // ---------- abas ----------
@@ -226,15 +226,15 @@ function tituloUtil(aba) {
   return generico ? "" : t;
 }
 
-// Cor fixa de cada conta: Next verde, Nuveto roxo, Codex azul (Shell sem cor)
+// Cor fixa de cada conta: Conta 1 verde, Conta 2 roxo, Codex azul (Shell sem cor)
 function corDe(aba) {
   if (aba.tipo === "codex") return "cor-codex";
   if (aba.tipo !== "claude") return "";
-  const n = (aba.conta?.nome || "").toLowerCase();
-  return n.includes("nuveto") ? "cor-nuveto" : n.includes("next") ? "cor-next" : "";
+  const n = aba.conta?.nome || "";
+  return n === "Conta 1" ? "cor-conta1" : n === "Conta 2" ? "cor-conta2" : "";
 }
 
-// "Claude · Nuveto", "Codex", "Shell"
+// "Claude · Conta 2", "Codex", "Shell"
 function rotulo(aba) {
   return aba.tipo === "claude" && aba.conta && contas.length > 1 ? `Claude · ${aba.conta.nome}` : NOME[aba.tipo];
 }
