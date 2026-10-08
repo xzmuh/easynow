@@ -15,6 +15,26 @@ easynow
 Abre um Claude. As outras abas você abre pelo botão "Nova aba", ou já pede na hora: `easynow claude claude codex shell`.
 A janela abre solta do terminal (pode fechar o terminal depois).
 
+## Várias contas do Claude
+
+O easynow acha sozinho cada conta do Claude: a padrão (`~/.claude`) e qualquer pasta `~/.claude-<nome>` com login feito.
+Para adicionar uma conta, crie a pasta fazendo login nela uma vez:
+
+```sh
+CLAUDE_CONFIG_DIR=~/.claude-trabalho claude   # depois digite /login e entre com a outra conta
+```
+
+Na próxima vez que abrir o easynow, a conta aparece em "Nova aba", com o nome da organização (ou o começo do e-mail).
+
+## Som ao terminar
+
+Quando um Claude termina uma tarefa, toca um aviso curto e grave. Ao abrir, o easynow coloca esse aviso
+(um hook `Stop`) no `settings.json` de cada conta encontrada; ele vale até para o Claude aberto fora do easynow.
+O botão de alto-falante no topo da janela muta e desmuta. O som e a marca de mudo ficam em `~/.config/easynow/`.
+
+Precisa de `paplay`, `pw-play` ou `aplay` (qualquer Linux com PulseAudio, PipeWire ou ALSA já tem um deles).
+Para tirar de vez, apague o hook com `/hooks` dentro do Claude.
+
 ## Atalhos
 
 | Tecla | O quê |
@@ -44,6 +64,7 @@ Depois de mexer no código (Rust ou `ui/`), rode `cargo build --release` de novo
   - Codex: grava `task_started`/`task_complete` e os tokens no arquivo da sessão em `~/.codex/sessions`; mesmo esquema.
   - Shell: a saída do terminal acorda a thread da aba; 1,5 s de silêncio e ela volta a dormir.
   - Limites de uso: buscados só ao trocar de aba ou quando um agente termina (no máximo 1x por minuto).
+- `src/som.rs`: instala o hook do som em cada conta e guarda o mudo.
 - `src/uso.rs`: contas do Claude (`~/.claude`, `~/.claude-*`), tokens de cada sessão e limites.
 - `ui/app.js`: abas, atalhos e painéis. A tela só é redesenhada quando chega um evento.
 

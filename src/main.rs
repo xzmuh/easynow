@@ -4,6 +4,7 @@
 
 mod monitor;
 mod pty;
+mod som;
 mod uso;
 mod voz;
 
@@ -132,25 +133,14 @@ fn voz_ligada(dir: String) -> bool {
     voz::ligada(&dir)
 }
 
-/// Aviso sonoro do Claude: o hook Stop só toca se este arquivo não existir.
-fn arquivo_mudo() -> std::path::PathBuf {
-    std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude-2/sounds/mudo")
-}
-
 #[tauri::command]
 fn som_mudo() -> bool {
-    arquivo_mudo().exists()
+    som::mudo()
 }
 
 #[tauri::command]
 fn som_mutar(mudo: bool) {
-    let f = arquivo_mudo();
-    if mudo {
-        let _ = std::fs::create_dir_all(f.parent().unwrap());
-        let _ = std::fs::write(&f, "");
-    } else {
-        let _ = std::fs::remove_file(&f);
-    }
+    som::mutar(mudo);
 }
 
 /// Abre um link do terminal no navegador padrão.
@@ -206,6 +196,7 @@ fn main() {
     }
 
     let contas = uso::contas();
+    som::instalar(&contas);
     let estado = Estado {
         abas: Mutex::new(HashMap::new()),
         contas: contas.clone(),
