@@ -303,7 +303,7 @@ function desenhar() {
 
   // cabeçalho do terminal
   if (a) {
-    $("#ba-ic").className = `ic ${estadoDe(a)}`;
+    $("#ba-ic").className = `ic ${corDe(a)} ${estadoDe(a)}`;
     $("#ba-titulo").textContent = nomeCompleto(a);
     $("#ba-pasta").textContent = workspace(a);
     $("#ba-pasta").title = curto(a.info?.pasta || a.pasta);

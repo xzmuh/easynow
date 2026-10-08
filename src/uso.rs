@@ -272,7 +272,10 @@ pub fn limite_claude(conta: &Conta) -> Limite {
             lim.semana = janela("seven_day");
         }
         // o login expira quando o Claude não está aberto; ele renova sozinho ao abrir
-        Err(_) => lim.erro = Some("abra o Claude dessa conta para atualizar".into()),
+        Err(ureq::Error::StatusCode(401)) => lim.erro = Some("abra o Claude dessa conta para atualizar".into()),
+        // esse endereço tem cota baixa e o próprio Claude também consulta; tenta de novo depois
+        Err(ureq::Error::StatusCode(429)) => lim.erro = Some("consultando de novo em instantes".into()),
+        Err(_) => lim.erro = Some("sem conexão para ver os limites".into()),
     }
     lim
 }

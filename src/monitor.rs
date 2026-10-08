@@ -279,8 +279,16 @@ impl Monitor {
         self.emitir_limites();
     }
 
-    fn guardar_limite(&self, l: Limite) {
-        self.limites.lock().unwrap().insert(l.chave.clone(), (Instant::now(), l));
+    fn guardar_limite(&self, mut l: Limite) {
+        let mut limites = self.limites.lock().unwrap();
+        // consulta falhou: fica com os últimos números que deram certo
+        if l.erro.is_some() {
+            if let Some((_, velho)) = limites.get(&l.chave).filter(|(_, v)| v.sessao.is_some() || v.semana.is_some()) {
+                l = velho.clone();
+            }
+        }
+        limites.insert(l.chave.clone(), (Instant::now(), l));
+        drop(limites);
         self.emitir_limites();
     }
 

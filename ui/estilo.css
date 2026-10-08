@@ -164,12 +164,12 @@ h2 {
 .ic.trabalhando {
   background: transparent;
   box-shadow: none;
-  border: 2px solid var(--verde);
+  border: 2px solid var(--cor, var(--verde));
   border-right-color: transparent;
   width: 11px; height: 11px;
   animation: girar 0.9s linear infinite;
 }
-.ic.pronto { background: var(--verde); box-shadow: none; }
+.ic.pronto { background: var(--cor, var(--verde)); box-shadow: none; }
 .ic.encerrado { background: var(--vermelho); box-shadow: none; }
 @keyframes girar { to { transform: rotate(360deg); } }
 
