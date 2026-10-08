@@ -146,6 +146,21 @@ function fechar(i) {
   ativar(Math.min(i, abas.length - 1));
 }
 
+// ---------- som ao terminar (hook Stop do Claude) ----------
+
+const SOM = `<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16.5 8.5a5 5 0 0 1 0 7"/></svg>`;
+const SOM_MUDO = `<svg viewBox="0 0 24 24"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M17 9l5 6M22 9l-5 6"/></svg>`;
+let mudo = false;
+
+function desenharSom(m, salvar) {
+  mudo = m;
+  if (salvar) invoke("som_mutar", { mudo });
+  const b = $("#btn-som");
+  b.innerHTML = mudo ? SOM_MUDO : SOM;
+  b.title = mudo ? "Som mutado (clique para ligar)" : "Som ao terminar (clique para mutar)";
+}
+invoke("som_mudo").then((m) => desenharSom(m, false));
+
 function alternarGrade() {
   grade = !grade;
   desenhar();
@@ -629,6 +644,7 @@ document.addEventListener("click", (ev) => {
   else if (!ev.target.closest(".menu")) $("#menu-novo").hidden = true;
 });
 $("#btn-grade").addEventListener("click", alternarGrade);
+$("#btn-som").addEventListener("click", () => desenharSom(!mudo, true));
 $("#modal-sim").addEventListener("click", () => fecharModal(true));
 $("#modal-nao").addEventListener("click", () => fecharModal(false));
 

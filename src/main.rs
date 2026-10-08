@@ -132,6 +132,27 @@ fn voz_ligada(dir: String) -> bool {
     voz::ligada(&dir)
 }
 
+/// Aviso sonoro do Claude: o hook Stop só toca se este arquivo não existir.
+fn arquivo_mudo() -> std::path::PathBuf {
+    std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".claude-2/sounds/mudo")
+}
+
+#[tauri::command]
+fn som_mudo() -> bool {
+    arquivo_mudo().exists()
+}
+
+#[tauri::command]
+fn som_mutar(mudo: bool) {
+    let f = arquivo_mudo();
+    if mudo {
+        let _ = std::fs::create_dir_all(f.parent().unwrap());
+        let _ = std::fs::write(&f, "");
+    } else {
+        let _ = std::fs::remove_file(&f);
+    }
+}
+
 /// Abre um link do terminal no navegador padrão.
 #[tauri::command]
 fn abrir_link(url: String) {
@@ -210,7 +231,9 @@ fn main() {
             voz_ouvir,
             voz_parar,
             voz_ligada,
-            abrir_link
+            abrir_link,
+            som_mudo,
+            som_mutar
         ])
         .run(tauri::generate_context!())
         .expect("erro ao abrir a janela");
