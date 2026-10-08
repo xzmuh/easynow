@@ -56,6 +56,15 @@ pub fn contas() -> Vec<Conta> {
     lista
 }
 
+/// Pasta para uma conta nova: a primeira ~/.claude-N ainda sem login.
+pub fn pasta_conta_nova() -> PathBuf {
+    let home = PathBuf::from(std::env::var("HOME").unwrap_or_default());
+    (2..)
+        .map(|n| home.join(format!(".claude-{n}")))
+        .find(|p| !p.join(".credentials.json").exists())
+        .unwrap()
+}
+
 /// "Next SI" (nome da organização) ou, se for o nome automático, o começo do e-mail ("Nuveto").
 fn nome_da_conta(arquivo: &Path) -> Option<String> {
     let v: Value = serde_json::from_str(&std::fs::read_to_string(arquivo).ok()?).ok()?;

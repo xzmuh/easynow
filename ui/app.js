@@ -174,6 +174,7 @@ const porId = (id) => abas.find((a) => a.id === id);
 function aoEstado({ id, trabalhando }) {
   const aba = porId(id);
   if (!aba || aba.codigo !== null) return;
+  if (aba.conta?.nova) recarregarContas().then(desenhar);
   if (trabalhando && !aba.trabalhandoDesde) aba.trabalhandoDesde = Date.now();
   else if (!trabalhando && aba.trabalhandoDesde) fecharRodada(aba);
   desenhar();
@@ -190,6 +191,7 @@ async function aoFim(id) {
   const aba = porId(id);
   if (!aba || aba.codigo !== null) return;
   aba.codigo = (await invoke("codigo_saida", { id })) ?? 0;
+  if (aba.conta?.nova) await recarregarContas();
   fecharRodada(aba);
   desenhar();
 }
@@ -393,10 +395,12 @@ function opcoesNovo() {
     ...contas.map((c) => ({ tipo: "claude", conta: c, titulo: contas.length > 1 ? `Claude · ${c.nome}` : "Claude", sub: curto(c.dir) })),
     { tipo: "codex", titulo: "Codex", sub: "OpenAI Codex" },
     { tipo: "shell", titulo: "Shell", sub: "Terminal comum" },
+    { tipo: "login", titulo: "Adicionar conta", sub: "Entrar com outra conta do Claude" },
   ];
 }
 
-function abrirMenu() {
+async function abrirMenu() {
+  await recarregarContas();
   const menu = $("#menu-novo");
   menu.innerHTML = opcoesNovo().map((o, i) =>
     `<button data-opcao="${i}" class="${corDe(o)}"><b>${esc(o.titulo)}</b><span>${esc(o.sub)}</span><kbd>${i + 1}</kbd></button>`).join("");
@@ -406,10 +410,24 @@ function abrirMenu() {
   menu.hidden = false;
 }
 
-function escolher(i) {
+async function escolher(i) {
   const o = opcoesNovo()[i];
   $("#menu-novo").hidden = true;
-  if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
+  if (o?.tipo === "login") {
+    // Claude numa pasta de configuração nova: ele mesmo pede o login na primeira vez
+    const dir = await invoke("conta_nova");
+    novaAba("claude", abas[ativa]?.id ?? null, { nome: "Nova conta", dir, padrao: false, nova: true });
+  } else if (o) novaAba(o.tipo, abas[ativa]?.id ?? null, o.conta || null);
+}
+
+// Depois do login numa aba "Adicionar conta", a conta passa a existir: entra na lista
+// e a aba ganha o nome de verdade.
+async function recarregarContas() {
+  contas = await invoke("recarregar_contas");
+  for (const a of abas) {
+    const c = a.conta?.nova && contas.find((x) => x.dir === a.conta.dir);
+    if (c) a.conta = c;
+  }
 }
 
 // ---------- voz (orb) ----------

@@ -18,13 +18,11 @@ A janela abre solta do terminal (pode fechar o terminal depois).
 ## Várias contas do Claude
 
 O easynow acha sozinho cada conta do Claude: a padrão (`~/.claude`) e qualquer pasta `~/.claude-<nome>` com login feito.
-Para adicionar uma conta, crie a pasta fazendo login nela uma vez:
+Para adicionar uma conta, abra "Nova aba" e escolha **Adicionar conta**: abre um Claude numa pasta nova
+(`~/.claude-2`, `~/.claude-3`...) e ele pede o login. Depois de entrar, a conta já aparece no menu, com o nome
+da organização (ou o começo do e-mail), e ganha o som de aviso.
 
-```sh
-CLAUDE_CONFIG_DIR=~/.claude-trabalho claude   # depois digite /login e entre com a outra conta
-```
-
-Na próxima vez que abrir o easynow, a conta aparece em "Nova aba", com o nome da organização (ou o começo do e-mail).
+Pelo terminal dá no mesmo: `CLAUDE_CONFIG_DIR=~/.claude-trabalho claude` e `/login`.
 
 ## Som ao terminar
 

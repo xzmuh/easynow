@@ -55,7 +55,7 @@ pub struct Monitor {
     app: AppHandle,
     abas: Mutex<HashMap<u32, Vigiada>>,
     leitor: Mutex<Leitor>,
-    contas: Vec<Conta>,
+    contas: Mutex<Vec<Conta>>,
     /// chave (pasta da conta ou "codex") -> (quando buscou, limite)
     limites: Mutex<HashMap<String, (Instant, Limite)>>,
     _vigia: Mutex<Option<notify::RecommendedWatcher>>,
@@ -67,7 +67,7 @@ impl Monitor {
             app,
             abas: Mutex::new(HashMap::new()),
             leitor: Mutex::new(Leitor::default()),
-            contas,
+            contas: Mutex::new(contas),
             limites: Mutex::new(HashMap::new()),
             _vigia: Mutex::new(None),
         });
@@ -75,7 +75,7 @@ impl Monitor {
         // Pede ao Linux para avisar quando os arquivos de estado mudarem.
         let (tx, rx) = mpsc::channel();
         if let Ok(mut vigia) = notify::recommended_watcher(tx) {
-            for c in &m.contas {
+            for c in m.contas.lock().unwrap().iter() {
                 let dir = Path::new(&c.dir).join("sessions");
                 if dir.is_dir() {
                     let _ = vigia.watch(&dir, RecursiveMode::NonRecursive);
@@ -114,6 +114,16 @@ impl Monitor {
             Vigiada { tipo: tipo.into(), pid, config, trabalhando: false, arquivo: None },
         );
         self.emitir_info(id, None);
+    }
+
+    /// Conta nova (login feito com o easynow aberto): passa a vigiar as sessões dela.
+    pub fn adicionar_conta(&self, conta: Conta) {
+        let dir = Path::new(&conta.dir).join("sessions");
+        let _ = std::fs::create_dir_all(&dir);
+        if let Some(vigia) = self._vigia.lock().unwrap().as_mut() {
+            let _ = vigia.watch(&dir, RecursiveMode::NonRecursive);
+        }
+        self.contas.lock().unwrap().push(conta);
     }
 
     pub fn remover(&self, id: u32) {
@@ -263,7 +273,8 @@ impl Monitor {
 
     /// Atualiza os limites das contas pedidas (ou de todas) se já passou um minuto.
     pub fn pedir_limites(self: &Arc<Self>, chave: Option<String>) {
-        for conta in self.contas.iter().filter(|c| chave.as_ref().is_none_or(|k| *k == c.dir)) {
+        let contas = self.contas.lock().unwrap().clone();
+        for conta in contas.iter().filter(|c| chave.as_ref().is_none_or(|k| *k == c.dir)) {
             let velho = self
                 .limites
                 .lock()

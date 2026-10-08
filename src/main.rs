@@ -22,7 +22,7 @@ use uso::Conta;
 
 struct Estado {
     abas: Mutex<HashMap<u32, Aba>>,
-    contas: Vec<Conta>,
+    contas: Mutex<Vec<Conta>>,
     iniciais: Vec<String>,
     pasta: PathBuf,
 }
@@ -41,7 +41,7 @@ fn inicio(estado: State<Estado>) -> Inicio {
         abas: estado.iniciais.clone(),
         pasta: estado.pasta.to_string_lossy().into(),
         home: std::env::var("HOME").unwrap_or_default(),
-        contas: estado.contas.clone(),
+        contas: estado.contas.lock().unwrap().clone(),
     }
 }
 
@@ -66,21 +66,26 @@ fn abrir(
         .and_then(|a| a.pid)
         .and_then(|p| std::fs::read_link(format!("/proc/{p}/cwd")).ok())
         .unwrap_or_else(|| estado.pasta.clone());
+    let contas = estado.contas.lock().unwrap().clone();
     let conta = if tipo == "claude" {
-        conta
-            .and_then(|dir| estado.contas.iter().find(|c| c.dir == dir))
-            .or(estado.contas.first())
+        match conta {
+            // pasta de uma conta nova (aba de login), que ainda não está na lista
+            Some(dir) if Some(PathBuf::from(&dir)) == Some(uso::pasta_conta_nova()) => {
+                Some(Conta { nome: "Nova conta".into(), dir, padrao: false })
+            }
+            c => c.and_then(|dir| contas.iter().find(|c| c.dir == dir)).or(contas.first()).cloned(),
+        }
     } else {
         None
     };
-    let env_conta = conta.filter(|c| !c.padrao).map(|c| c.dir.as_str());
+    let env_conta = conta.as_ref().filter(|c| !c.padrao).map(|c| c.dir.as_str());
 
     let ultima_entrada = Arc::new(Mutex::new(Instant::now()));
     // só o shell precisa ser acordado pela saída; Claude e Codex avisam por arquivo
     let acordar = (tipo == "shell").then(|| monitor.vigiar_shell(id, ultima_entrada.clone()));
     let aba = Aba::abrir(app, id, &tipo, env_conta, pasta.clone(), linhas, colunas, ultima_entrada, acordar)
         .map_err(|e| e.to_string())?;
-    monitor.registrar(id, &tipo, aba.pid.unwrap_or(0), conta.map(|c| PathBuf::from(&c.dir)));
+    monitor.registrar(id, &tipo, aba.pid.unwrap_or(0), conta.as_ref().map(|c| PathBuf::from(&c.dir)));
     abas.insert(id, aba);
     Ok(pasta.to_string_lossy().into())
 }
@@ -131,6 +136,26 @@ fn voz_parar(mic: State<voz::Microfone>) {
 #[tauri::command]
 fn voz_ligada(dir: String) -> bool {
     voz::ligada(&dir)
+}
+
+/// Pasta onde a aba "Adicionar conta" vai fazer o login.
+#[tauri::command]
+fn conta_nova() -> String {
+    uso::pasta_conta_nova().to_string_lossy().into()
+}
+
+/// Procura contas de novo (depois de um login) e já liga o som e o monitor nas novas.
+#[tauri::command]
+fn recarregar_contas(estado: State<Estado>, monitor: State<Arc<Monitor>>) -> Vec<Conta> {
+    let mut contas = estado.contas.lock().unwrap();
+    for c in uso::contas() {
+        if !contas.iter().any(|x| x.dir == c.dir) {
+            som::instalar(std::slice::from_ref(&c));
+            monitor.adicionar_conta(c.clone());
+            contas.push(c);
+        }
+    }
+    contas.clone()
 }
 
 #[tauri::command]
@@ -199,7 +224,7 @@ fn main() {
     som::instalar(&contas);
     let estado = Estado {
         abas: Mutex::new(HashMap::new()),
-        contas: contas.clone(),
+        contas: Mutex::new(contas.clone()),
         iniciais,
         pasta: std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
     };
@@ -224,6 +249,8 @@ fn main() {
             voz_ligada,
             abrir_link,
             som_mudo,
+            conta_nova,
+            recarregar_contas,
             som_mutar
         ])
         .run(tauri::generate_context!())
