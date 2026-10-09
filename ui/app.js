@@ -468,7 +468,7 @@ async function recarregarContas() {
 // Quem ouve e transcreve é o /voice do Claude (segurando espaço). O easynow só mostra
 // o orb enquanto o espaço está segurado, reagindo ao volume do microfone.
 
-const voz = { ouvindo: false, nivel: 0, alvo: 0, quadro: 0, saida: 0, ligada: {} };
+const voz = { ouvindo: false, nivel: 0, alvo: 0, quadro: 0, saida: 0, ligada: {}, rgb: [74, 222, 128] };
 
 function conferirVoz(aba) {
   const dir = aba?.tipo === "claude" && aba.conta?.dir;
@@ -479,7 +479,11 @@ function começarOrb() {
   voz.ouvindo = true;
   clearTimeout(voz.saida);
   const orb = $("#orb");
-  orb.classList.remove("transcrevendo");
+  // a esfera pega a cor do chat (verde, roxo...)
+  orb.className = corDe(abas[ativa] || {}) || "cor-conta1";
+  const cor = getComputedStyle(orb).getPropertyValue("--cor").trim();
+  const hex = /^#([0-9a-f]{6})$/i.exec(cor);
+  if (hex) voz.rgb = [0, 2, 4].map((k) => parseInt(hex[1].slice(k, k + 2), 16));
   $("#orb-texto").textContent = "Ouvindo…";
   orb.classList.add("visivel");
   invoke("voz_ouvir");
@@ -539,14 +543,22 @@ function desenharOrb(t) {
   esfera.giro += 0.004 + n * 0.025;
   const ay = esfera.giro, ax = 0.4 + 0.15 * Math.sin(t / 2600);
   const cy = Math.cos(ay), sy = Math.sin(ay), cx = Math.cos(ax), sx = Math.sin(ax);
-  const R = W * 0.3;
+  const R = W * (0.28 + n * 0.06); // a bola cresce com a voz
+  const [cr, cg, cb] = voz.rgb;
+
+  // brilho atrás da esfera, mais forte quando fala
+  const brilho = g.createRadialGradient(m, m, 0, m, m, W / 2);
+  brilho.addColorStop(0, `rgba(${cr}, ${cg}, ${cb}, ${0.1 + n * 0.3})`);
+  brilho.addColorStop(1, `rgba(${cr}, ${cg}, ${cb}, 0)`);
+  g.fillStyle = brilho;
+  g.fillRect(0, 0, W, W);
   const respira = voz.ouvindo ? 0 : 0.03 * Math.sin(t / 260);
 
   // gira, ondula com a voz e projeta cada ponto na tela
   const tl = esfera.tela;
   esfera.pts.forEach(([x, y, z], i) => {
     const onda = Math.sin(x * 4 + t / 170) * Math.cos(y * 5 - t / 210) * Math.sin(z * 3 + t / 250);
-    const d = 1 + respira + n * 0.3 * onda;
+    const d = 1 + respira + n * 0.5 * onda;
     let X = x * cy + z * sy, Z = -x * sy + z * cy;
     let Y = y * cx - Z * sx;
     Z = y * sx + Z * cx;
@@ -562,7 +574,7 @@ function desenharOrb(t) {
   for (const [a, b] of esfera.ligacoes) {
     const prof = (tl[a * 4 + 2] + tl[b * 4 + 2]) / 2;
     const luz = (tl[a * 4 + 3] + tl[b * 4 + 3]) / 2;
-    g.strokeStyle = `rgba(74, 222, 128, ${0.07 + prof * 0.23 + luz * 0.6})`;
+    g.strokeStyle = `rgba(${cr}, ${cg}, ${cb}, ${0.1 + prof * 0.3 + luz * 0.6})`;
     g.beginPath();
     g.moveTo(tl[a * 4], tl[a * 4 + 1]);
     g.lineTo(tl[b * 4], tl[b * 4 + 1]);
@@ -573,7 +585,9 @@ function desenharOrb(t) {
   for (let i = 0; i < esfera.pts.length; i++) {
     const prof = tl[i * 4 + 2], luz = tl[i * 4 + 3];
     const v = Math.min(1, 0.15 + prof * 0.55 + luz * 1.2);
-    g.fillStyle = `hsla(142, 76%, ${Math.round(52 + 38 * luz)}%, ${0.15 + 0.85 * v})`;
+    // acende puxando a cor para o branco
+    const k = Math.min(1, luz * 0.8);
+    g.fillStyle = `rgba(${cr + (255 - cr) * k}, ${cg + (255 - cg) * k}, ${cb + (255 - cb) * k}, ${0.2 + 0.8 * v})`;
     g.beginPath();
     g.arc(tl[i * 4], tl[i * 4 + 1], W * (0.0035 + 0.006 * prof + 0.008 * luz), 0, Math.PI * 2);
     g.fill();

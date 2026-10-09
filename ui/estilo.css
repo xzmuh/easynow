@@ -454,30 +454,37 @@ h2 {
 
 #centro { position: relative; }
 #orb {
+  /* cobre a área do terminal: o chat fica borrado atrás e a esfera aparece no meio */
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%) scale(0.85);
+  inset: 0;
+  z-index: 20;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+  gap: 4px;
   pointer-events: none;
+  border-radius: inherit;
+  background: rgba(12, 12, 14, 0.45);
+  backdrop-filter: blur(14px) saturate(120%);
+  -webkit-backdrop-filter: blur(14px) saturate(120%);
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.25s ease, transform 0.25s ease, visibility 0s linear 0.25s;
-  /* fundo escuro só atrás do orb, para não brigar com o texto do terminal */
-  background: radial-gradient(closest-side at 50% 45%, rgba(19, 19, 21, 0.95) 0, rgba(19, 19, 21, 0.8) 60%, rgba(19, 19, 21, 0) 100%);
-  padding: 50px 70px;
+  transition: opacity 0.25s ease, visibility 0s linear 0.25s;
 }
 #orb.visivel {
   opacity: 1;
   visibility: visible;
-  transform: translate(-50%, -50%) scale(1);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition: opacity 0.25s ease;
 }
-#orb canvas { width: 220px; height: 220px; }
-#orb-texto { font-size: 13px; font-weight: 500; color: var(--verde); margin-top: 6px; }
+#orb canvas {
+  width: 300px;
+  height: 300px;
+  transform: scale(0.85);
+  transition: transform 0.3s ease;
+}
+#orb.visivel canvas { transform: scale(1); }
+#orb-texto { font-size: 14px; font-weight: 500; color: var(--cor, var(--verde)); }
 #orb.transcrevendo #orb-texto { color: var(--texto-2); }
 
 /* ---------- modal ---------- */
