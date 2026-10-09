@@ -37,6 +37,7 @@ impl Microfone {
         let piso = self.piso.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 1600]; // 800 amostras = 50 ms
+            let mut pedacos = 0;
             while saida.read_exact(&mut buf).is_ok() {
                 let soma: f64 = buf
                     .chunks_exact(2)
@@ -46,8 +47,9 @@ impl Microfone {
                     })
                     .sum();
                 let rms = (soma / 800.0).sqrt();
-                // o pw-record começa soltando zeros; isso não é o ruído da sala
-                if rms < 1.0 {
+                // o microfone leva uns 200 ms acordando; esse começo não é o ruído da sala
+                pedacos += 1;
+                if pedacos <= 5 {
                     continue;
                 }
                 let db = 20.0 * (rms / 32768.0).max(1e-5).log10();
