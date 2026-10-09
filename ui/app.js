@@ -590,7 +590,7 @@ function atalho(ev) {
   // O espaço sempre segue para o Claude (é ele quem grava).
   if (ev.code === "Space" && !ev.ctrlKey && !ev.altKey && !ev.metaKey) {
     const a = abas[ativa];
-    if (ev.type === "keydown" && ev.repeat && !voz.ouvindo && a?.tipo === "claude" && voz.ligada[a.conta?.dir]) {
+    if (ev.type === "keydown" && ev.repeat && !voz.ouvindo && a?.tipo === "claude" && voz.ligada[a.conta?.dir] !== false) {
       começarOrb();
     } else if (ev.type === "keyup") {
       terminarOrb();

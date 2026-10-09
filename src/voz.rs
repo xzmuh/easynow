@@ -58,11 +58,17 @@ impl Microfone {
     }
 }
 
-/// O /voice está ligado nessa conta do Claude? (settings.json -> voiceEnabled)
+/// O /voice está ligado nessa conta do Claude? (settings.json -> voice.enabled)
 pub fn ligada(dir: &str) -> bool {
-    std::fs::read_to_string(Path::new(dir).join("settings.json"))
+    // Só fica de fora quem desligou o /voice de propósito. Sem nada no settings.json
+    // (o Claude nem sempre grava lá) o orb aparece ao segurar o espaço.
+    let cfg = std::fs::read_to_string(Path::new(dir).join("settings.json"))
         .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| v.get("voiceEnabled")?.as_bool())
-        .unwrap_or(false)
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    let Some(cfg) = cfg else { return true };
+    // formato novo ("voice": { "enabled": ... }) e o antigo ("voiceEnabled")
+    cfg.pointer("/voice/enabled")
+        .or_else(|| cfg.get("voiceEnabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true)
 }
