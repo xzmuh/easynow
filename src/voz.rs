@@ -46,6 +46,10 @@ impl Microfone {
                     })
                     .sum();
                 let rms = (soma / 800.0).sqrt();
+                // o pw-record começa soltando zeros; isso não é o ruído da sala
+                if rms < 1.0 {
+                    continue;
+                }
                 let db = 20.0 * (rms / 32768.0).max(1e-5).log10();
                 // o piso desce rápido e sobe devagar: segue o ruído da sala, não a fala
                 let mut p = piso.lock().unwrap();
