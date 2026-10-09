@@ -5,7 +5,7 @@
 use std::io::Read;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use tauri::{AppHandle, Emitter};
@@ -13,6 +13,8 @@ use tauri::{AppHandle, Emitter};
 #[derive(Default)]
 pub struct Microfone {
     gravador: Mutex<Option<Child>>,
+    // ruído da sala em dB, guardado entre uma fala e outra
+    piso: Arc<Mutex<Option<f64>>>,
 }
 
 impl Microfone {
@@ -32,6 +34,7 @@ impl Microfone {
         };
         let Some(mut saida) = filho.stdout.take() else { return };
         *g = Some(filho);
+        let piso = self.piso.clone();
         thread::spawn(move || {
             let mut buf = [0u8; 1600]; // 800 amostras = 50 ms
             while saida.read_exact(&mut buf).is_ok() {
@@ -43,8 +46,14 @@ impl Microfone {
                     })
                     .sum();
                 let rms = (soma / 800.0).sqrt();
-                // escala "de ouvido": fala normal fica no meio, grito chega em 1
-                let nivel = ((rms / 32768.0).max(1e-5).log10() + 3.5) / 2.5;
+                let db = 20.0 * (rms / 32768.0).max(1e-5).log10();
+                // o piso desce rápido e sobe devagar: segue o ruído da sala, não a fala
+                let mut p = piso.lock().unwrap();
+                let base = p.get_or_insert(db);
+                *base += (db - *base) * if db < *base { 0.3 } else { 0.002 };
+                // só o que passa do ruído conta: 3 dB acima começa a mexer, 25 dB acima é 1
+                let nivel = (db - *base - 3.0) / 25.0;
+                drop(p);
                 let _ = app.emit("nivel", nivel.clamp(0.0, 1.0));
             }
         });
